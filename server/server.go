@@ -11,36 +11,59 @@ import (
 	"github.com/lucas-clemente/quic-go"
 	"io"
 	"math/big"
-	"sync"
+	"net"
+	"qperf-go/common"
 )
 
 // Run server
 //
 // The sync.WaitGroup may be nil
-func Run(addr string, wg *sync.WaitGroup) {
-	listener, err := quic.ListenAddr(addr, generateTLSConfig(), nil)
+func Run(addr net.UDPAddr) {
+	listener, err := quic.ListenAddr(addr.String(), generateTLSConfig(), nil)
 	if err != nil {
 		panic(err)
 	}
 
-	session, err := listener.Accept(context.Background())
-	if err != nil {
-		panic(err)
-	}
+	var sessionId uint64 = 0
 
-	stream, err := session.AcceptStream(context.Background())
-	if err != nil {
-		panic(err)
+	for {
+		session, err := listener.Accept(context.Background())
+		if err != nil {
+			panic(err)
+		}
+		fmt.Printf("[session %d] open session\n", sessionId)
+		go handleSession(session, sessionId)
+		sessionId += 1
 	}
+}
 
-	buf, err := io.ReadAll(stream)
-	if err != nil {
-		panic(err)
+func handleSession(session quic.Session, sessionId uint64) {
+	for {
+		stream, err := session.AcceptStream(context.Background())
+		if err != nil {
+			switch t := err.(type) {
+			case *quic.TransportError:
+				switch t.ErrorCode {
+				case quic.NoError:
+					return // ignore
+				default:
+					panic(err)
+				}
+			default:
+				fmt.Printf("[session %d] %s\n", sessionId, err)
+				return
+			}
+		}
+		fmt.Printf("[session %d][stream %d] open stream\n", sessionId, stream.StreamID())
+		go sendData(stream, sessionId)
 	}
+}
 
-	fmt.Printf("server received: %s\n", buf)
-	if wg != nil {
-		wg.Done()
+func sendData(stream quic.SendStream, sessionId uint64) {
+	ir := common.InfiniteReader{}
+	_, err := io.Copy(stream, ir)
+	if err != nil {
+		fmt.Printf("[session %d][stream %d] %s\n", sessionId, stream.StreamID(), err)
 	}
 }
 
