@@ -1,6 +1,7 @@
 package server
 
 import (
+	"bufio"
 	"context"
 	"crypto/rand"
 	"crypto/rsa"
@@ -9,31 +10,60 @@ import (
 	"encoding/pem"
 	"fmt"
 	"github.com/lucas-clemente/quic-go"
+	"github.com/lucas-clemente/quic-go/logging"
+	"github.com/lucas-clemente/quic-go/qlog"
 	"io"
 	"math/big"
 	"net"
+	"os"
 	"qperf-go/common"
 )
 
 // Run server
 //
 // The sync.WaitGroup may be nil
-func Run(addr net.UDPAddr) {
-	listener, err := quic.ListenAddr(addr.String(), generateTLSConfig(), nil)
+func Run(addr net.UDPAddr, createQLog bool) {
+
+	state := common.State{}
+
+	multiTracer := common.MultiTracer{}
+
+	multiTracer.Tracers = append(multiTracer.Tracers, common.StateTracer{
+		State: &state,
+	})
+
+	if createQLog {
+		multiTracer.Tracers = append(multiTracer.Tracers, qlog.NewTracer(func(p logging.Perspective, connectionID []byte) io.WriteCloser {
+			filename := fmt.Sprintf("server_%x.qlog", connectionID)
+			f, err := os.Create(filename)
+			if err != nil {
+				panic(err)
+			}
+			return common.NewBufferedWriteCloser(bufio.NewWriter(f), f)
+		}))
+	}
+
+	conf := quic.Config{
+		Tracer: multiTracer,
+	}
+
+	listener, err := quic.ListenAddr(addr.String(), generateTLSConfig(), &conf)
 	if err != nil {
 		panic(err)
 	}
 
-	var sessionId uint64 = 0
+	fmt.Printf("starting server with %d, port %d, cc cubic, iw %d", os.Getpid(), addr.Port, conf.InitialConnectionReceiveWindow)
+
+	var nextSessionId uint64 = 0
 
 	for {
 		session, err := listener.Accept(context.Background())
 		if err != nil {
 			panic(err)
 		}
-		fmt.Printf("[session %d] open session\n", sessionId)
-		go handleSession(session, sessionId)
-		sessionId += 1
+		fmt.Printf("[session %d] open session\n", nextSessionId)
+		go handleSession(session, nextSessionId)
+		nextSessionId += 1
 	}
 }
 

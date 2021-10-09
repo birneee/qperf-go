@@ -12,7 +12,7 @@ type StateTracer struct {
 }
 
 func (a StateTracer) TracerForConnection(ctx context.Context, p logging.Perspective, odcid logging.ConnectionID) logging.ConnectionTracer {
-	return AckCountConnectionTracer{
+	return StateConnectionTracer{
 		State: a.State,
 	}
 }
@@ -25,47 +25,47 @@ func (a StateTracer) DroppedPacket(addr net.Addr, packetType logging.PacketType,
 	// ignore
 }
 
-type AckCountConnectionTracer struct {
+type StateConnectionTracer struct {
 	State *State
 }
 
-func (a AckCountConnectionTracer) StartedConnection(local, remote net.Addr, srcConnID, destConnID logging.ConnectionID) {
+func (a StateConnectionTracer) StartedConnection(local, remote net.Addr, srcConnID, destConnID logging.ConnectionID) {
 	// ignore
 }
 
-func (a AckCountConnectionTracer) NegotiatedVersion(chosen logging.VersionNumber, clientVersions, serverVersions []logging.VersionNumber) {
+func (a StateConnectionTracer) NegotiatedVersion(chosen logging.VersionNumber, clientVersions, serverVersions []logging.VersionNumber) {
 	// ignore
 }
 
-func (a AckCountConnectionTracer) ClosedConnection(err error) {
+func (a StateConnectionTracer) ClosedConnection(err error) {
 	// ignore
 }
 
-func (a AckCountConnectionTracer) SentTransportParameters(parameters *logging.TransportParameters) {
+func (a StateConnectionTracer) SentTransportParameters(parameters *logging.TransportParameters) {
 	// ignore
 }
 
-func (a AckCountConnectionTracer) ReceivedTransportParameters(parameters *logging.TransportParameters) {
+func (a StateConnectionTracer) ReceivedTransportParameters(parameters *logging.TransportParameters) {
 	// ignore
 }
 
-func (a AckCountConnectionTracer) RestoredTransportParameters(parameters *logging.TransportParameters) {
+func (a StateConnectionTracer) RestoredTransportParameters(parameters *logging.TransportParameters) {
 	// ignore
 }
 
-func (a AckCountConnectionTracer) SentPacket(hdr *logging.ExtendedHeader, size logging.ByteCount, ack *logging.AckFrame, frames []logging.Frame) {
+func (a StateConnectionTracer) SentPacket(hdr *logging.ExtendedHeader, size logging.ByteCount, ack *logging.AckFrame, frames []logging.Frame) {
 	// ignore
 }
 
-func (a AckCountConnectionTracer) ReceivedVersionNegotiationPacket(header *logging.Header, numbers []logging.VersionNumber) {
+func (a StateConnectionTracer) ReceivedVersionNegotiationPacket(header *logging.Header, numbers []logging.VersionNumber) {
 	// ignore
 }
 
-func (a AckCountConnectionTracer) ReceivedRetry(header *logging.Header) {
+func (a StateConnectionTracer) ReceivedRetry(header *logging.Header) {
 	// ignore
 }
 
-func (a AckCountConnectionTracer) ReceivedPacket(hdr *logging.ExtendedHeader, size logging.ByteCount, frames []logging.Frame) {
+func (a StateConnectionTracer) ReceivedPacket(hdr *logging.ExtendedHeader, size logging.ByteCount, frames []logging.Frame) {
 	var receivedBytes uint64 = 0
 	for _, frame := range frames {
 		if streamFrame, ok := frame.(*logging.StreamFrame); ok {
@@ -75,66 +75,66 @@ func (a AckCountConnectionTracer) ReceivedPacket(hdr *logging.ExtendedHeader, si
 	a.State.Add(receivedBytes, 1)
 }
 
-func (a AckCountConnectionTracer) BufferedPacket(packetType logging.PacketType) {
+func (a StateConnectionTracer) BufferedPacket(packetType logging.PacketType) {
 	// ignore
 }
 
-func (a AckCountConnectionTracer) DroppedPacket(packetType logging.PacketType, count logging.ByteCount, reason logging.PacketDropReason) {
+func (a StateConnectionTracer) DroppedPacket(packetType logging.PacketType, count logging.ByteCount, reason logging.PacketDropReason) {
 	// ignore
 }
 
-func (a AckCountConnectionTracer) UpdatedMetrics(rttStats *logging.RTTStats, cwnd, bytesInFlight logging.ByteCount, packetsInFlight int) {
+func (a StateConnectionTracer) UpdatedMetrics(rttStats *logging.RTTStats, cwnd, bytesInFlight logging.ByteCount, packetsInFlight int) {
 	// ignore
 }
 
-func (a AckCountConnectionTracer) AcknowledgedPacket(level logging.EncryptionLevel, number logging.PacketNumber) {
+func (a StateConnectionTracer) AcknowledgedPacket(level logging.EncryptionLevel, number logging.PacketNumber) {
 	// ignore
 }
 
-func (a AckCountConnectionTracer) LostPacket(level logging.EncryptionLevel, number logging.PacketNumber, reason logging.PacketLossReason) {
+func (a StateConnectionTracer) LostPacket(level logging.EncryptionLevel, number logging.PacketNumber, reason logging.PacketLossReason) {
 	// ignore
 }
 
-func (a AckCountConnectionTracer) UpdatedCongestionState(state logging.CongestionState) {
+func (a StateConnectionTracer) UpdatedCongestionState(state logging.CongestionState) {
 	// ignore
 }
 
-func (a AckCountConnectionTracer) UpdatedPTOCount(value uint32) {
+func (a StateConnectionTracer) UpdatedPTOCount(value uint32) {
 	// ignore
 }
 
-func (a AckCountConnectionTracer) UpdatedKeyFromTLS(level logging.EncryptionLevel, perspective logging.Perspective) {
+func (a StateConnectionTracer) UpdatedKeyFromTLS(level logging.EncryptionLevel, perspective logging.Perspective) {
 	// ignore
 }
 
-func (a AckCountConnectionTracer) UpdatedKey(generation logging.KeyPhase, remote bool) {
+func (a StateConnectionTracer) UpdatedKey(generation logging.KeyPhase, remote bool) {
 	// ignore
 }
 
-func (a AckCountConnectionTracer) DroppedEncryptionLevel(level logging.EncryptionLevel) {
+func (a StateConnectionTracer) DroppedEncryptionLevel(level logging.EncryptionLevel) {
 	// ignore
 }
 
-func (a AckCountConnectionTracer) DroppedKey(generation logging.KeyPhase) {
+func (a StateConnectionTracer) DroppedKey(generation logging.KeyPhase) {
 	// ignore
 }
 
-func (a AckCountConnectionTracer) SetLossTimer(timerType logging.TimerType, level logging.EncryptionLevel, time time.Time) {
+func (a StateConnectionTracer) SetLossTimer(timerType logging.TimerType, level logging.EncryptionLevel, time time.Time) {
 	// ignore
 }
 
-func (a AckCountConnectionTracer) LossTimerExpired(timerType logging.TimerType, level logging.EncryptionLevel) {
+func (a StateConnectionTracer) LossTimerExpired(timerType logging.TimerType, level logging.EncryptionLevel) {
 	// ignore
 }
 
-func (a AckCountConnectionTracer) LossTimerCanceled() {
+func (a StateConnectionTracer) LossTimerCanceled() {
 	// ignore
 }
 
-func (a AckCountConnectionTracer) Close() {
+func (a StateConnectionTracer) Close() {
 	// ignore
 }
 
-func (a AckCountConnectionTracer) Debug(name, msg string) {
+func (a StateConnectionTracer) Debug(name, msg string) {
 	// ignore
 }

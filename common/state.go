@@ -64,14 +64,12 @@ func (s *State) SetStartTime() {
 	s.startTime = time.Now()
 }
 
-func (s *State) GetOrWaitFirstByteTime() time.Time {
-	for {
-		s.mutex.Lock()
-		value := s.firstByteTime
-		s.mutex.Unlock()
-		if !value.IsZero() {
-			return value
-		}
-		time.Sleep(1 * time.Millisecond)
+func (s *State) GetFirstByteTime() time.Time {
+	s.mutex.Lock()
+	value := s.firstByteTime
+	s.mutex.Unlock()
+	if value.IsZero() {
+		panic("not set yet")
 	}
+	return value
 }
