@@ -16,13 +16,18 @@ type State struct {
 	lastReportReceivedPackets uint64
 }
 
-func (s *State) Add(receivedBytes uint64, receivedPackets uint64) {
+func (s *State) AddReceivedBytes(receivedBytes uint64) {
 	s.mutex.Lock()
 	s.totalReceivedBytes += receivedBytes
-	s.totalReceivedPackets += receivedPackets
 	if s.firstByteTime.IsZero() && s.totalReceivedBytes != 0 {
 		s.firstByteTime = time.Now()
 	}
+	s.mutex.Unlock()
+}
+
+func (s *State) AddReceivedPackets(receivedPackets uint64) {
+	s.mutex.Lock()
+	s.totalReceivedPackets += receivedPackets
 	s.mutex.Unlock()
 }
 

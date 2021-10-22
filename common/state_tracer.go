@@ -66,13 +66,7 @@ func (a StateConnectionTracer) ReceivedRetry(header *logging.Header) {
 }
 
 func (a StateConnectionTracer) ReceivedPacket(hdr *logging.ExtendedHeader, size logging.ByteCount, frames []logging.Frame) {
-	var receivedBytes uint64 = 0
-	for _, frame := range frames {
-		if streamFrame, ok := frame.(*logging.StreamFrame); ok {
-			receivedBytes += uint64(streamFrame.Length)
-		}
-	}
-	a.State.Add(receivedBytes, 1)
+	a.State.AddReceivedPackets(1)
 }
 
 func (a StateConnectionTracer) BufferedPacket(packetType logging.PacketType) {

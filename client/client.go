@@ -76,7 +76,7 @@ func Run(addr net.UDPAddr, timeToFirstByteOnly bool, printRaw bool, createQLog b
 
 	stream.CancelWrite(quic.StreamErrorCode(quic.NoError))
 
-	err = receiveFirstByte(stream)
+	err = receiveFirstByte(stream, &state)
 	if err != nil {
 		panic(err)
 	}
@@ -84,7 +84,7 @@ func Run(addr net.UDPAddr, timeToFirstByteOnly bool, printRaw bool, createQLog b
 	reportFirstByte(&state, printRaw)
 
 	if !timeToFirstByteOnly {
-		go receive(stream)
+		go receive(stream, &state)
 
 		for {
 			if time.Now().Sub(state.GetFirstByteTime()) > time.Duration(10*time.Second) {
@@ -145,7 +145,7 @@ func reportTotal(state *common.State, printRaw bool) {
 	}
 }
 
-func receiveFirstByte(stream quic.ReceiveStream) error {
+func receiveFirstByte(stream quic.ReceiveStream, state *common.State) error {
 	buf := make([]byte, 1)
 	for {
 		received, err := stream.Read(buf)
@@ -153,15 +153,19 @@ func receiveFirstByte(stream quic.ReceiveStream) error {
 			return err
 		}
 		if received != 0 {
+			state.AddReceivedBytes(uint64(received))
 			return nil
 		}
 	}
 }
 
-func receive(reader io.Reader) {
-	dw := common.DiscardWriter{}
-	_, err := io.Copy(dw, reader)
-	if err != nil {
-		//TODO differentiate errors from planed close
+func receive(reader io.Reader, state *common.State) {
+	buf := make([]byte, 1024)
+	for {
+		received, err := reader.Read(buf)
+		state.AddReceivedBytes(uint64(received))
+		if err != nil {
+			//TODO differentiate errors from planed close
+		}
 	}
 }
