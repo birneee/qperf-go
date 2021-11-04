@@ -6,6 +6,7 @@ import (
 	"os"
 	"qperf-go/client"
 	"qperf-go/server"
+	"time"
 )
 
 const addr = "localhost:4242"
@@ -50,6 +51,10 @@ func main() {
 				Name:  "qlog",
 				Usage: "create qlog file",
 			},
+			&cli.UintFlag{
+				Name:  "migrate",
+				Usage: "seconds after which the udp socket is migrated",
+			},
 		},
 		//todo use addr and port values
 		Action: func(c *cli.Context) error {
@@ -58,15 +63,23 @@ func main() {
 					IP:   net.ParseIP(c.String("listen-addr")),
 					Port: c.Int("listen-port"),
 				},
-					c.Bool("qlog"))
+					c.Bool("qlog"),
+					time.Duration(c.Uint64("migrate"))*time.Second,
+				)
 			} else if c.IsSet("c") {
+				ip, err := net.ResolveIPAddr("ip", c.String("c"))
+				if err != nil {
+					panic("failed to resolve ip")
+				}
 				client.Run(net.UDPAddr{
-					IP:   net.ParseIP(c.String("c")),
+					IP:   ip.IP,
 					Port: c.Int("port"),
 				},
 					c.Bool("e"),
 					c.Bool("print-raw"),
-					c.Bool("qlog"))
+					c.Bool("qlog"),
+					time.Duration(c.Uint64("migrate"))*time.Second,
+				)
 			} else {
 				println("exactly one mode must be stated")
 				cli.ShowAppHelpAndExit(c, 1)

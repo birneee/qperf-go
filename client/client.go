@@ -18,7 +18,7 @@ import (
 )
 
 // Run client
-func Run(addr net.UDPAddr, timeToFirstByteOnly bool, printRaw bool, createQLog bool) {
+func Run(addr net.UDPAddr, timeToFirstByteOnly bool, printRaw bool, createQLog bool, migrateAfter time.Duration) {
 	tlsConf := &tls.Config{
 		InsecureSkipVerify: true,
 		NextProtos:         []string{"qperf"},
@@ -50,6 +50,18 @@ func Run(addr net.UDPAddr, timeToFirstByteOnly bool, printRaw bool, createQLog b
 	session, err := quic.DialAddr(addr.String(), tlsConf, &conf)
 	if err != nil {
 		panic(err)
+	}
+
+	// migrate
+	if migrateAfter.Nanoseconds() != 0 {
+		go func() {
+			time.Sleep(migrateAfter)
+			addr, err := session.Migrate()
+			if err != nil {
+				panic(err)
+			}
+			fmt.Printf("migrated to %s\n", addr.String())
+		}()
 	}
 
 	state.SetStartTime()
@@ -87,7 +99,7 @@ func Run(addr net.UDPAddr, timeToFirstByteOnly bool, printRaw bool, createQLog b
 		go receive(stream, &state)
 
 		for {
-			if time.Now().Sub(state.GetFirstByteTime()) > time.Duration(10*time.Second) {
+			if time.Now().Sub(state.GetFirstByteTime()) > 10*time.Second {
 				break
 			}
 			time.Sleep(1 * time.Second)

@@ -17,12 +17,13 @@ import (
 	"net"
 	"os"
 	"qperf-go/common"
+	"time"
 )
 
 // Run server
 //
 // The sync.WaitGroup may be nil
-func Run(addr net.UDPAddr, createQLog bool) {
+func Run(addr net.UDPAddr, createQLog bool, migrateAfter time.Duration) {
 
 	state := common.State{}
 
@@ -52,7 +53,19 @@ func Run(addr net.UDPAddr, createQLog bool) {
 		panic(err)
 	}
 
-	fmt.Printf("starting server with %d, port %d, cc cubic, iw %d", os.Getpid(), addr.Port, conf.InitialConnectionReceiveWindow)
+	fmt.Printf("starting server with %d, port %d, cc cubic, iw %d\n", os.Getpid(), addr.Port, conf.InitialConnectionReceiveWindow)
+
+	// migrate
+	if migrateAfter.Nanoseconds() != 0 {
+		go func() {
+			time.Sleep(migrateAfter)
+			addr, err := listener.Migrate()
+			if err != nil {
+				panic(err)
+			}
+			fmt.Printf("migrated to %s\n", addr.String())
+		}()
+	}
 
 	var nextSessionId uint64 = 0
 
@@ -79,9 +92,11 @@ func handleSession(session quic.Session, sessionId uint64) {
 				default:
 					panic(err)
 				}
-			default:
+			case *quic.ApplicationError:
 				fmt.Printf("[session %d] %s\n", sessionId, err)
 				return
+			default:
+				panic(err)
 			}
 		}
 		fmt.Printf("[session %d][stream %d] open stream\n", sessionId, stream.StreamID())
@@ -90,10 +105,20 @@ func handleSession(session quic.Session, sessionId uint64) {
 }
 
 func sendData(stream quic.SendStream, sessionId uint64) {
-	ir := common.InfiniteReader{}
-	_, err := io.Copy(stream, ir)
-	if err != nil {
-		fmt.Printf("[session %d][stream %d] %s\n", sessionId, stream.StreamID(), err)
+	buf := make([]byte, 1024)
+	for {
+		_, err := stream.Write(buf)
+		if err != nil {
+			switch err.(type) {
+			case *quic.TransportError:
+				return // is handled on session level
+			case *quic.ApplicationError:
+				return // is handled on session level
+			default:
+				fmt.Printf("[session %d][stream %d] %s\n", sessionId, stream.StreamID(), err)
+				panic(err)
+			}
+		}
 	}
 }
 
