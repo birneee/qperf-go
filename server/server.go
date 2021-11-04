@@ -84,20 +84,8 @@ func handleSession(session quic.Session, sessionId uint64) {
 	for {
 		stream, err := session.AcceptStream(context.Background())
 		if err != nil {
-			switch t := err.(type) {
-			case *quic.TransportError:
-				switch t.ErrorCode {
-				case quic.NoError:
-					return // ignore
-				default:
-					panic(err)
-				}
-			case *quic.ApplicationError:
-				fmt.Printf("[session %d] %s\n", sessionId, err)
-				return
-			default:
-				panic(err)
-			}
+			fmt.Printf("[session %d] %s\n", sessionId, err)
+			return
 		}
 		fmt.Printf("[session %d][stream %d] open stream\n", sessionId, stream.StreamID())
 		go sendData(stream, sessionId)
@@ -109,15 +97,8 @@ func sendData(stream quic.SendStream, sessionId uint64) {
 	for {
 		_, err := stream.Write(buf)
 		if err != nil {
-			switch err.(type) {
-			case *quic.TransportError:
-				return // is handled on session level
-			case *quic.ApplicationError:
-				return // is handled on session level
-			default:
-				fmt.Printf("[session %d][stream %d] %s\n", sessionId, stream.StreamID(), err)
-				panic(err)
-			}
+			fmt.Printf("[session %d][stream %d] %s\n", sessionId, stream.StreamID(), err)
+			return
 		}
 	}
 }
