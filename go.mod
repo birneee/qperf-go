@@ -8,7 +8,7 @@ require (
 	github.com/urfave/cli/v2 v2.3.0
 )
 
-replace github.com/lucas-clemente/quic-go => /home/benedikt/Git/quic-go
+replace github.com/lucas-clemente/quic-go => ../quic-go
 
 require (
 	github.com/cheekybits/genny v1.0.0 // indirect

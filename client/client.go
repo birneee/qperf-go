@@ -52,6 +52,15 @@ func Run(addr net.UDPAddr, timeToFirstByteOnly bool, printRaw bool, createQLog b
 		panic(err)
 	}
 
+	//TODO remove handover test
+	//println("connected")
+	//time.Sleep(time.Second)
+	//session, err = session.Clone()
+	//if err != nil {
+	//	panic(err)
+	//}
+	//println("cloned")
+
 	// migrate
 	if migrateAfter.Nanoseconds() != 0 {
 		go func() {
