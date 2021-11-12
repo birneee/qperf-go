@@ -4,12 +4,14 @@ import (
 	"bufio"
 	"context"
 	"crypto/tls"
+	"crypto/x509"
 	"fmt"
 	"github.com/dustin/go-humanize"
 	"github.com/lucas-clemente/quic-go"
 	"github.com/lucas-clemente/quic-go/logging"
 	"github.com/lucas-clemente/quic-go/qlog"
 	"io"
+	"io/ioutil"
 	"net"
 	"os"
 	"os/signal"
@@ -19,9 +21,22 @@ import (
 
 // Run client
 func Run(addr net.UDPAddr, timeToFirstByteOnly bool, printRaw bool, createQLog bool, migrateAfter time.Duration) {
+	certPool := x509.NewCertPool()
+
+	//TODO add CLI options
+	caCertRaw, err := ioutil.ReadFile("server.crt")
+	if err != nil {
+		panic(err)
+	}
+
+	ok := certPool.AppendCertsFromPEM(caCertRaw)
+	if !ok {
+		panic("failed to add certificate to pool")
+	}
+
 	tlsConf := &tls.Config{
-		InsecureSkipVerify: true,
-		NextProtos:         []string{"qperf"},
+		RootCAs:    certPool,
+		NextProtos: []string{"qperf"},
 	}
 
 	state := common.State{}
