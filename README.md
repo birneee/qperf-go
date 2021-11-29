@@ -7,5 +7,6 @@ sysctl -w net.core.rmem_max=2500000
 
 ## Generate Self-signed certificate
 ```
-openssl req -x509 -nodes -out server.crt -keyout server.key -config server.req
+openssl req -x509 -nodes -out server.crt -keyout server.key -config server.req # for server
+openssl req -x509 -nodes -out proxy.crt -keyout proxy.key -config proxy.req # for proxy
 ```
