@@ -2,16 +2,13 @@ package client
 
 import (
 	"bufio"
-	"context"
 	"crypto/tls"
-	"crypto/x509"
 	"fmt"
 	"github.com/dustin/go-humanize"
 	"github.com/lucas-clemente/quic-go"
 	"github.com/lucas-clemente/quic-go/logging"
 	"github.com/lucas-clemente/quic-go/qlog"
 	"io"
-	"io/ioutil"
 	"net"
 	"os"
 	"os/signal"
@@ -19,23 +16,11 @@ import (
 	"time"
 )
 
-// Run client
-func Run(addr net.UDPAddr, timeToFirstByteOnly bool, printRaw bool, createQLog bool, migrateAfter time.Duration) {
-	certPool := x509.NewCertPool()
-
-	//TODO add CLI options
-	caCertRaw, err := ioutil.ReadFile("server.crt")
-	if err != nil {
-		panic(err)
-	}
-
-	ok := certPool.AppendCertsFromPEM(caCertRaw)
-	if !ok {
-		panic("failed to add certificate to pool")
-	}
-
+// Run client.
+// if proxyAddr is nil, no proxy is used.
+func Run(addr net.UDPAddr, timeToFirstByteOnly bool, printRaw bool, createQLog bool, migrateAfter time.Duration, proxyAddr *net.UDPAddr, probeTime time.Duration, tlsServerCertFile string, tlsProxyCertFile string) {
 	tlsConf := &tls.Config{
-		RootCAs:    certPool,
+		RootCAs:    common.NewCertPoolWithCert(tlsServerCertFile),
 		NextProtos: []string{"qperf"},
 	}
 
@@ -60,21 +45,26 @@ func Run(addr net.UDPAddr, timeToFirstByteOnly bool, printRaw bool, createQLog b
 
 	conf := quic.Config{
 		Tracer: multiTracer,
+		IgnoreReceived1RTTPacketsUntilFirstPathMigration: proxyAddr != nil, // TODO maybe not necessary for client
 	}
+
+	state.SetStartTime()
 
 	session, err := quic.DialAddr(addr.String(), tlsConf, &conf)
 	if err != nil {
 		panic(err)
 	}
 
-	//TODO remove handover test
-	//println("connected")
-	//time.Sleep(time.Second)
-	//session, err = session.Clone()
-	//if err != nil {
-	//	panic(err)
-	//}
-	//println("cloned")
+	state.SetEstablishmentTime()
+	reportEstablishmentTime(&state, printRaw)
+
+	if proxyAddr != nil {
+		err = session.UseProxy(proxyAddr, &tls.Config{RootCAs: common.NewCertPoolWithCert(tlsProxyCertFile)})
+		if err != nil {
+			panic(err)
+		}
+		fmt.Printf("use proxy\n")
+	}
 
 	// migrate
 	if migrateAfter.Nanoseconds() != 0 {
@@ -88,8 +78,6 @@ func Run(addr net.UDPAddr, timeToFirstByteOnly bool, printRaw bool, createQLog b
 		}()
 	}
 
-	state.SetStartTime()
-
 	// close gracefully on interrupt (CTRL+C)
 	c := make(chan os.Signal, 1)
 	signal.Notify(c, os.Interrupt)
@@ -99,7 +87,7 @@ func Run(addr net.UDPAddr, timeToFirstByteOnly bool, printRaw bool, createQLog b
 		os.Exit(0)
 	}()
 
-	stream, err := session.OpenStreamSync(context.Background())
+	stream, err := session.OpenStream()
 	if err != nil {
 		panic(err)
 	}
@@ -123,7 +111,7 @@ func Run(addr net.UDPAddr, timeToFirstByteOnly bool, printRaw bool, createQLog b
 		go receive(stream, &state)
 
 		for {
-			if time.Now().Sub(state.GetFirstByteTime()) > 10*time.Second {
+			if time.Now().Sub(state.GetFirstByteTime()) > probeTime {
 				break
 			}
 			time.Sleep(1 * time.Second)
@@ -141,12 +129,23 @@ func Run(addr net.UDPAddr, timeToFirstByteOnly bool, printRaw bool, createQLog b
 	reportTotal(&state, printRaw)
 }
 
+func reportEstablishmentTime(state *common.State, printRaw bool) {
+	establishmentTime := state.EstablishmentTime().Sub(state.StartTime())
+	if printRaw {
+		fmt.Printf("connection establishment time: %f s\n",
+			establishmentTime.Seconds())
+	} else {
+		fmt.Printf("connection establishment time: %s\n",
+			humanize.SIWithDigits(establishmentTime.Seconds(), 2, "s"))
+	}
+}
+
 func reportFirstByte(state *common.State, printRaw bool) {
 	if printRaw {
-		fmt.Printf("time to first byte %f s\n",
+		fmt.Printf("time to first byte: %f s\n",
 			state.GetFirstByteTime().Sub(state.StartTime()).Seconds())
 	} else {
-		fmt.Printf("time to first byte %s\n",
+		fmt.Printf("time to first byte: %s\n",
 			humanize.SIWithDigits(state.GetFirstByteTime().Sub(state.StartTime()).Seconds(), 2, "s"))
 	}
 }

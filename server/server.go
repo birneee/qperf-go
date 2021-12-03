@@ -15,8 +15,9 @@ import (
 	"time"
 )
 
-// Run server
-func Run(addr net.UDPAddr, createQLog bool, migrateAfter time.Duration) {
+// Run server.
+// if proxyAddr is nil, no proxy is used.
+func Run(addr net.UDPAddr, createQLog bool, migrateAfter time.Duration, proxyAddr *net.UDPAddr, tlsServerCertFile string, tlsServerKeyFile string, tlsProxyCertFile string) {
 
 	state := common.State{}
 
@@ -39,10 +40,11 @@ func Run(addr net.UDPAddr, createQLog bool, migrateAfter time.Duration) {
 
 	conf := quic.Config{
 		Tracer: multiTracer,
+		IgnoreReceived1RTTPacketsUntilFirstPathMigration: proxyAddr != nil,
 	}
 
 	//TODO make CLI option
-	tlsCert, err := tls.LoadX509KeyPair("server.crt", "server.key")
+	tlsCert, err := tls.LoadX509KeyPair(tlsServerCertFile, tlsServerKeyFile)
 	if err != nil {
 		panic(err)
 	}
@@ -57,7 +59,7 @@ func Run(addr net.UDPAddr, createQLog bool, migrateAfter time.Duration) {
 		panic(err)
 	}
 
-	fmt.Printf("starting server with %d, port %d, cc cubic, iw %d\n", os.Getpid(), addr.Port, conf.InitialConnectionReceiveWindow)
+	fmt.Printf("starting server with pid %d, port %d, cc cubic, iw %d\n", os.Getpid(), addr.Port, conf.InitialConnectionReceiveWindow)
 
 	// migrate
 	if migrateAfter.Nanoseconds() != 0 {
@@ -78,7 +80,16 @@ func Run(addr net.UDPAddr, createQLog bool, migrateAfter time.Duration) {
 		if err != nil {
 			panic(err)
 		}
-		fmt.Printf("[session %d] open session\n", nextSessionId)
+		fmt.Printf("[session %d] open\n", nextSessionId)
+
+		if proxyAddr != nil {
+			err = session.UseProxy(proxyAddr, &tls.Config{RootCAs: common.NewCertPoolWithCert(tlsProxyCertFile)})
+			if err != nil {
+				panic(err)
+			}
+			fmt.Printf("[session %d] use proxy\n", nextSessionId)
+		}
+
 		go handleSession(session, nextSessionId)
 		nextSessionId += 1
 	}
@@ -91,7 +102,7 @@ func handleSession(session quic.Session, sessionId uint64) {
 			fmt.Printf("[session %d] %s\n", sessionId, err)
 			return
 		}
-		fmt.Printf("[session %d][stream %d] open stream\n", sessionId, stream.StreamID())
+		fmt.Printf("[session %d][stream %d] open\n", sessionId, stream.StreamID())
 		go sendData(stream, sessionId)
 	}
 }

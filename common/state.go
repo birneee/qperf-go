@@ -9,6 +9,7 @@ type State struct {
 	mutex                     sync.Mutex
 	startTime                 time.Time
 	firstByteTime             time.Time
+	establishmentTime         time.Time
 	totalReceivedBytes        uint64
 	totalReceivedPackets      uint64
 	lastReportTime            time.Time
@@ -77,4 +78,15 @@ func (s *State) GetFirstByteTime() time.Time {
 		panic("not set yet")
 	}
 	return value
+}
+
+func (s *State) SetEstablishmentTime() {
+	if !s.establishmentTime.IsZero() {
+		panic("already set")
+	}
+	s.establishmentTime = time.Now()
+}
+
+func (s *State) EstablishmentTime() time.Time {
+	return s.establishmentTime
 }
