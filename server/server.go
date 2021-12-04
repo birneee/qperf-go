@@ -41,6 +41,7 @@ func Run(addr net.UDPAddr, createQLog bool, migrateAfter time.Duration, proxyAdd
 	conf := quic.Config{
 		Tracer: multiTracer,
 		IgnoreReceived1RTTPacketsUntilFirstPathMigration: proxyAddr != nil,
+		EnableActiveMigration:                            true,
 	}
 
 	//TODO make CLI option
@@ -65,7 +66,7 @@ func Run(addr net.UDPAddr, createQLog bool, migrateAfter time.Duration, proxyAdd
 	if migrateAfter.Nanoseconds() != 0 {
 		go func() {
 			time.Sleep(migrateAfter)
-			addr, err := listener.Migrate()
+			addr, err := listener.MigrateUDPSocket()
 			if err != nil {
 				panic(err)
 			}
