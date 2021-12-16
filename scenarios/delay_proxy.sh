@@ -1,6 +1,8 @@
 #!/bin/bash
 source ./common.sh
 
+trap "pkill -P $$" SIGINT
+
 # Build qperf
 build_qperf
 
@@ -20,6 +22,7 @@ sudo ip netns exec ns-client ip addr add 10.0.0.101/24 dev eth-client
 
 # Set interfaces up
 sudo ip netns exec ns-server ip link set dev eth-server up
+sudo ip netns exec ns-server ip link set dev lo up # loopback
 sudo ip netns exec ns-client ip link set dev eth-client up
 sudo ip netns exec ns-client ip link set dev lo up # loopback
 
@@ -32,12 +35,12 @@ sudo ip netns exec ns-server $QPERF_BIN server --tls-cert ../server.crt --tls-ke
 SERVER_PID=$!
 
 # Start proxy
-sudo ip netns exec ns-client $QPERF_BIN proxy --tls-cert ../proxy.crt --tls-key ../proxy.key &
+sudo ip netns exec ns-client $QPERF_BIN proxy --tls-cert ../proxy.crt --tls-key ../proxy.key --server-side-max-receive-window 50MB &
 PROXY_PID=$!
 
 # Start client
 sudo ip netns exec ns-client sudo ping 10.0.0.1 -c 1 >/dev/null # because of ARP request/response
-sudo ip netns exec ns-client $QPERF_BIN client --addr 10.0.0.1 --proxy 127.0.0.1 -t 20 --tls-cert ../server.crt --tls-proxy-cert ../proxy.crt &
+sudo ip netns exec ns-client $QPERF_BIN client --addr 10.0.0.1 --proxy 10.0.0.101 -t 20 --tls-cert ../server.crt --tls-proxy-cert ../proxy.crt &
 CLIENT_PID=$!
 
 wait $CLIENT_PID
