@@ -132,3 +132,7 @@ func (a StateConnectionTracer) Close() {
 func (a StateConnectionTracer) Debug(name, msg string) {
 	// ignore
 }
+
+func (a StateConnectionTracer) UpdatedPath(newRemote net.Addr) {
+	// ignore
+}

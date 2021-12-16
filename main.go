@@ -1,6 +1,7 @@
 package main
 
 import (
+	"fmt"
 	"github.com/birneee/hquic-proxy-go/proxy"
 	"github.com/urfave/cli/v2"
 	"net"
@@ -44,8 +45,69 @@ func main() {
 						Usage: "key file to use",
 						Value: defaultProxyTLSKeyFile,
 					},
+					&cli.StringFlag{
+						Name:  "next-proxy",
+						Usage: "the additional, server-side proxy to use, in the form \"host:port\", default port 18081 if not specified",
+					},
+					&cli.StringFlag{
+						Name:  "next-proxy-cert",
+						Usage: "certificate file to trust the next proxy",
+						Value: "proxy.crt",
+					},
+					&cli.StringFlag{
+						Name:  "initial-congestion-window",
+						Usage: "the initial congestion window to use, in bytes",
+						Value: "39424B",
+					},
+					//TODO make name and description more clear
+					&cli.StringFlag{
+						Name:  "client-side-initial-receive-window",
+						Usage: "overwrite the initial receive window on the client side proxy connection, instead of using the one from the handover state",
+					},
+					//TODO make name and description more clear
+					&cli.StringFlag{
+						Name:  "server-side-initial-receive-window",
+						Usage: "overwrite the initial receive window on the server side proxy connection, instead of using the one from the handover state",
+					},
+					&cli.StringFlag{
+						Name:  "server-side-max-receive-window",
+						Usage: "overwrite the maximum receive window on the server side proxy connection, instead of using the one from the handover state",
+					},
 				},
 				Action: func(c *cli.Context) error {
+					var nextProxyAddr *net.UDPAddr
+					if c.IsSet("next-proxy") {
+						var err error
+						nextProxyAddr, err = common.ParseResolveHost(c.String("next-proxy"), common.DefaultProxyControlPort)
+						if err != nil {
+							panic(err)
+						}
+					}
+					initialCongestionWindow, err := common.ParseByteCountWithUnit(c.String("initial-congestion-window"))
+					if err != nil {
+						return fmt.Errorf("failed to parse initial-congestion-window: %w", err)
+					}
+					var clientSideInitialReceiveWindow uint64
+					if c.IsSet("client-side-initial-receive-window") {
+						clientSideInitialReceiveWindow, err = common.ParseByteCountWithUnit(c.String("client-side-initial-receive-window"))
+						if err != nil {
+							return fmt.Errorf("failed to parse client-side-initial-receive-window: %w", err)
+						}
+					}
+					var serverSideInitialReceiveWindow uint64
+					if c.IsSet("server-side-initial-receive-window") {
+						serverSideInitialReceiveWindow, err = common.ParseByteCountWithUnit(c.String("server-side-initial-receive-window"))
+						if err != nil {
+							return fmt.Errorf("failed to parse server-side-initial-receive-window: %w", err)
+						}
+					}
+					var serverSideMaxReceiveWindow uint64
+					if c.IsSet("server-side-max-receive-window") {
+						serverSideMaxReceiveWindow, err = common.ParseByteCountWithUnit(c.String("server-side-max-receive-window"))
+						if err != nil {
+							return fmt.Errorf("failed to parse server-side-max-receive-window: %w", err)
+						}
+					}
 					proxy.RunProxy(
 						net.UDPAddr{
 							IP:   net.ParseIP(c.String("addr")),
@@ -53,6 +115,12 @@ func main() {
 						},
 						c.String("tls-cert"),
 						c.String("tls-key"),
+						nextProxyAddr,
+						c.String("next-proxy-cert"),
+						uint32(initialCongestionWindow),
+						clientSideInitialReceiveWindow,
+						serverSideInitialReceiveWindow,
+						serverSideMaxReceiveWindow,
 					)
 					return nil
 				},
@@ -101,6 +169,21 @@ func main() {
 						Usage: "certificate file to trust the proxy",
 						Value: "proxy.crt",
 					},
+					&cli.StringFlag{
+						Name:  "initial-congestion-window",
+						Usage: "the initial congestion window to use, in bytes",
+						Value: "39424B",
+					},
+					&cli.StringFlag{
+						Name:  "initial-receive-window",
+						Usage: "the initial stream-level receive window, in bytes (the connection-level window is 1.5 times higher)",
+						Value: "512KiB",
+					},
+					&cli.StringFlag{
+						Name:  "max-receive-window",
+						Usage: "the maximum stream-level receive window, in bytes (the connection-level window is 1.5 times higher)",
+						Value: "6MiB",
+					},
 				},
 				Action: func(c *cli.Context) error {
 					var proxyAddr *net.UDPAddr
@@ -116,6 +199,18 @@ func main() {
 						println("invalid server address")
 						panic(err)
 					}
+					initialCongestionWindow, err := common.ParseByteCountWithUnit(c.String("initial-congestion-window"))
+					if err != nil {
+						return fmt.Errorf("failed to parse initial-congestion-window: %w", err)
+					}
+					initialReceiveWindow, err := common.ParseByteCountWithUnit(c.String("initial-receive-window"))
+					if err != nil {
+						return fmt.Errorf("failed to parse receive-window: %w", err)
+					}
+					maxReceiveWindow, err := common.ParseByteCountWithUnit(c.String("max-receive-window"))
+					if err != nil {
+						return fmt.Errorf("failed to parse receive-window: %w", err)
+					}
 					client.Run(
 						*serverAddr,
 						c.Bool("ttfb"),
@@ -126,6 +221,9 @@ func main() {
 						time.Duration(c.Uint("t"))*time.Second,
 						c.String("tls-cert"),
 						c.String("tls-proxy-cert"),
+						uint32(initialCongestionWindow),
+						initialReceiveWindow,
+						maxReceiveWindow,
 					)
 					return nil
 				},
@@ -171,6 +269,21 @@ func main() {
 						Usage: "certificate file to trust",
 						Value: "proxy.crt",
 					},
+					&cli.StringFlag{
+						Name:  "initial-congestion-window",
+						Usage: "the initial congestion window to use, in bytes",
+						Value: "39424B",
+					},
+					&cli.StringFlag{
+						Name:  "initial-receive-window",
+						Usage: "the initial stream-level receive window, in bytes (the connection-level window is 1.5 times higher)",
+						Value: "512KiB",
+					},
+					&cli.StringFlag{
+						Name:  "max-receive-window",
+						Usage: "the maximum stream-level receive window, in bytes (the connection-level window is 1.5 times higher)",
+						Value: "6MiB",
+					},
 				},
 				Action: func(c *cli.Context) error {
 					var proxyAddr *net.UDPAddr
@@ -180,6 +293,18 @@ func main() {
 						if err != nil {
 							panic(err)
 						}
+					}
+					initialCongestionWindow, err := common.ParseByteCountWithUnit(c.String("initial-congestion-window"))
+					if err != nil {
+						return fmt.Errorf("failed to parse initial-congestion-window: %w", err)
+					}
+					initialReceiveWindow, err := common.ParseByteCountWithUnit(c.String("initial-receive-window"))
+					if err != nil {
+						return fmt.Errorf("failed to parse receive-window: %w", err)
+					}
+					maxReceiveWindow, err := common.ParseByteCountWithUnit(c.String("max-receive-window"))
+					if err != nil {
+						return fmt.Errorf("failed to parse receive-window: %w", err)
 					}
 					server.Run(net.UDPAddr{
 						IP:   net.ParseIP(c.String("addr")),
@@ -191,6 +316,9 @@ func main() {
 						c.String("tls-cert"),
 						c.String("tls-key"),
 						c.String("tls-proxy-cert"),
+						uint32(initialCongestionWindow),
+						initialReceiveWindow,
+						maxReceiveWindow,
 					)
 					return nil
 				},

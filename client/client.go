@@ -18,7 +18,7 @@ import (
 
 // Run client.
 // if proxyAddr is nil, no proxy is used.
-func Run(addr net.UDPAddr, timeToFirstByteOnly bool, printRaw bool, createQLog bool, migrateAfter time.Duration, proxyAddr *net.UDPAddr, probeTime time.Duration, tlsServerCertFile string, tlsProxyCertFile string) {
+func Run(addr net.UDPAddr, timeToFirstByteOnly bool, printRaw bool, createQLog bool, migrateAfter time.Duration, proxyAddr *net.UDPAddr, probeTime time.Duration, tlsServerCertFile string, tlsProxyCertFile string, initialCongestionWindow uint32, initialReceiveWindow uint64, maxReceiveWindow uint64) {
 	tlsConf := &tls.Config{
 		RootCAs:    common.NewCertPoolWithCert(tlsServerCertFile),
 		NextProtos: []string{"qperf"},
@@ -26,15 +26,15 @@ func Run(addr net.UDPAddr, timeToFirstByteOnly bool, printRaw bool, createQLog b
 
 	state := common.State{}
 
-	multiTracer := common.MultiTracer{}
+	tracers := make([]logging.Tracer, 0)
 
-	multiTracer.Tracers = append(multiTracer.Tracers, common.StateTracer{
+	tracers = append(tracers, common.StateTracer{
 		State: &state,
 	})
 
 	if createQLog {
-		multiTracer.Tracers = append(multiTracer.Tracers, qlog.NewTracer(func(p logging.Perspective, connectionID []byte) io.WriteCloser {
-			filename := fmt.Sprintf("server_%x.qlog", connectionID)
+		tracers = append(tracers, qlog.NewTracer(func(p logging.Perspective, connectionID []byte) io.WriteCloser {
+			filename := fmt.Sprintf("client_%x.qlog", connectionID)
 			f, err := os.Create(filename)
 			if err != nil {
 				panic(err)
@@ -43,10 +43,33 @@ func Run(addr net.UDPAddr, timeToFirstByteOnly bool, printRaw bool, createQLog b
 		}))
 	}
 
+	tracers = append(tracers, common.NewMigrationTracer(func(addr net.Addr) {
+		fmt.Printf("migrated to %s\n", addr)
+	}))
+
+	if initialReceiveWindow > maxReceiveWindow {
+		maxReceiveWindow = initialReceiveWindow
+	}
+
+	var proxyConf *quic.ProxyConfig
+
+	if proxyAddr != nil {
+		proxyConf = &quic.ProxyConfig{
+			Addr:    proxyAddr,
+			RootCAs: common.NewCertPoolWithCert(tlsProxyCertFile),
+		}
+	}
+
 	conf := quic.Config{
-		Tracer: multiTracer,
+		Tracer: logging.NewMultiplexedTracer(tracers...),
 		IgnoreReceived1RTTPacketsUntilFirstPathMigration: proxyAddr != nil, // TODO maybe not necessary for client
 		EnableActiveMigration:                            true,
+		Proxy:                                            proxyConf,
+		InitialCongestionWindow:                          initialCongestionWindow,
+		InitialStreamReceiveWindow:                       initialReceiveWindow,
+		MaxStreamReceiveWindow:                           maxReceiveWindow,
+		InitialConnectionReceiveWindow:                   uint64(float64(initialReceiveWindow) * quic.ConnectionFlowControlMultiplier),
+		MaxConnectionReceiveWindow:                       uint64(float64(maxReceiveWindow) * quic.ConnectionFlowControlMultiplier),
 	}
 
 	state.SetStartTime()
@@ -58,14 +81,6 @@ func Run(addr net.UDPAddr, timeToFirstByteOnly bool, printRaw bool, createQLog b
 
 	state.SetEstablishmentTime()
 	reportEstablishmentTime(&state, printRaw)
-
-	if proxyAddr != nil {
-		err = session.UseProxy(proxyAddr, &tls.Config{RootCAs: common.NewCertPoolWithCert(tlsProxyCertFile)})
-		if err != nil {
-			panic(err)
-		}
-		fmt.Printf("use proxy\n")
-	}
 
 	// migrate
 	if migrateAfter.Nanoseconds() != 0 {

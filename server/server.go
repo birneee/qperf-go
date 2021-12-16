@@ -17,18 +17,23 @@ import (
 
 // Run server.
 // if proxyAddr is nil, no proxy is used.
-func Run(addr net.UDPAddr, createQLog bool, migrateAfter time.Duration, proxyAddr *net.UDPAddr, tlsServerCertFile string, tlsServerKeyFile string, tlsProxyCertFile string) {
+func Run(addr net.UDPAddr, createQLog bool, migrateAfter time.Duration, proxyAddr *net.UDPAddr, tlsServerCertFile string, tlsServerKeyFile string, tlsProxyCertFile string, initialCongestionWindow uint32, initialReceiveWindow uint64, maxReceiveWindow uint64) {
+
+	// TODO
+	if proxyAddr != nil {
+		panic("implement me")
+	}
 
 	state := common.State{}
 
-	multiTracer := common.MultiTracer{}
+	tracers := make([]logging.Tracer, 0)
 
-	multiTracer.Tracers = append(multiTracer.Tracers, common.StateTracer{
+	tracers = append(tracers, common.StateTracer{
 		State: &state,
 	})
 
 	if createQLog {
-		multiTracer.Tracers = append(multiTracer.Tracers, qlog.NewTracer(func(p logging.Perspective, connectionID []byte) io.WriteCloser {
+		tracers = append(tracers, qlog.NewTracer(func(p logging.Perspective, connectionID []byte) io.WriteCloser {
 			filename := fmt.Sprintf("server_%x.qlog", connectionID)
 			f, err := os.Create(filename)
 			if err != nil {
@@ -38,10 +43,19 @@ func Run(addr net.UDPAddr, createQLog bool, migrateAfter time.Duration, proxyAdd
 		}))
 	}
 
+	if initialReceiveWindow > maxReceiveWindow {
+		maxReceiveWindow = initialReceiveWindow
+	}
+
 	conf := quic.Config{
-		Tracer: multiTracer,
+		Tracer: logging.NewMultiplexedTracer(tracers...),
 		IgnoreReceived1RTTPacketsUntilFirstPathMigration: proxyAddr != nil,
 		EnableActiveMigration:                            true,
+		InitialCongestionWindow:                          initialCongestionWindow,
+		InitialStreamReceiveWindow:                       initialReceiveWindow,
+		MaxStreamReceiveWindow:                           maxReceiveWindow,
+		InitialConnectionReceiveWindow:                   uint64(float64(initialReceiveWindow) * quic.ConnectionFlowControlMultiplier),
+		MaxConnectionReceiveWindow:                       uint64(float64(maxReceiveWindow) * quic.ConnectionFlowControlMultiplier),
 	}
 
 	//TODO make CLI option
@@ -82,14 +96,6 @@ func Run(addr net.UDPAddr, createQLog bool, migrateAfter time.Duration, proxyAdd
 			panic(err)
 		}
 		fmt.Printf("[session %d] open\n", nextSessionId)
-
-		if proxyAddr != nil {
-			err = session.UseProxy(proxyAddr, &tls.Config{RootCAs: common.NewCertPoolWithCert(tlsProxyCertFile)})
-			if err != nil {
-				panic(err)
-			}
-			fmt.Printf("[session %d] use proxy\n", nextSessionId)
-		}
 
 		go handleSession(session, nextSessionId)
 		nextSessionId += 1
