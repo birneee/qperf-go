@@ -27,8 +27,8 @@ sudo ip netns exec ns-client ip link set dev eth-client up
 sudo ip netns exec ns-client ip link set dev lo up # loopback
 
 # Set Delay
-sudo ip netns exec ns-client tc qdisc replace dev eth-client root netem limit 1000000000 delay 400ms #TODO support 500ms an above
-sudo ip netns exec ns-server tc qdisc replace dev eth-server root netem limit 1000000000 delay 400ms
+sudo ip netns exec ns-client tc qdisc replace dev eth-client root netem limit 1000000000 delay 500ms
+sudo ip netns exec ns-server tc qdisc replace dev eth-server root netem limit 1000000000 delay 500ms
 
 # Start server
 sudo ip netns exec ns-server $QPERF_BIN server --tls-cert ../server.crt --tls-key ../server.key &
@@ -39,8 +39,11 @@ sudo ip netns exec ns-server $QPERF_BIN proxy --tls-cert ../proxy.crt --tls-key 
 SERVER_SIDE_PROXY_PID=$!
 
 # Start client-side proxy
-sudo ip netns exec ns-client $QPERF_BIN proxy --tls-cert ../proxy.crt --tls-key ../proxy.key --next-proxy 10.0.0.1 --next-proxy-cert ../proxy.crt --server-side-initial-receive-window 50MB &
+sudo ip netns exec ns-client $QPERF_BIN proxy --tls-cert ../proxy.crt --tls-key ../proxy.key --next-proxy 10.0.0.1 --0rtt --next-proxy-cert ../proxy.crt --server-side-initial-receive-window 50MB &
 CLIENT_SIDE_PROXY_PID=$!
+
+# give server and proxies some time to setup e.g. to share 0-rtt information
+sleep 2
 
 # Start client
 sudo ip netns exec ns-client sudo ping 10.0.0.1 -c 1 >/dev/null # because of ARP request/response

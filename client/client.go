@@ -18,12 +18,7 @@ import (
 
 // Run client.
 // if proxyAddr is nil, no proxy is used.
-func Run(addr net.UDPAddr, timeToFirstByteOnly bool, printRaw bool, createQLog bool, migrateAfter time.Duration, proxyAddr *net.UDPAddr, probeTime time.Duration, tlsServerCertFile string, tlsProxyCertFile string, initialCongestionWindow uint32, initialReceiveWindow uint64, maxReceiveWindow uint64) {
-	tlsConf := &tls.Config{
-		RootCAs:    common.NewCertPoolWithCert(tlsServerCertFile),
-		NextProtos: []string{"qperf"},
-	}
-
+func Run(addr net.UDPAddr, timeToFirstByteOnly bool, printRaw bool, createQLog bool, migrateAfter time.Duration, proxyAddr *net.UDPAddr, probeTime time.Duration, tlsServerCertFile string, tlsProxyCertFile string, initialCongestionWindow uint32, initialReceiveWindow uint64, maxReceiveWindow uint64, use0RTT bool) {
 	state := common.State{}
 
 	tracers := make([]logging.Tracer, 0)
@@ -55,9 +50,30 @@ func Run(addr net.UDPAddr, timeToFirstByteOnly bool, printRaw bool, createQLog b
 
 	if proxyAddr != nil {
 		proxyConf = &quic.ProxyConfig{
-			Addr:    proxyAddr,
-			RootCAs: common.NewCertPoolWithCert(tlsProxyCertFile),
+			Addr: proxyAddr,
+			TlsConf: &tls.Config{
+				RootCAs: common.NewCertPoolWithCert(tlsProxyCertFile),
+			},
+			Config: &quic.Config{
+				LoggerPrefix: "proxy control",
+			},
 		}
+	}
+
+	var clientSessionCache tls.ClientSessionCache
+	if use0RTT {
+		clientSessionCache = tls.NewLRUClientSessionCache(10)
+	}
+
+	var tokenStore quic.TokenStore
+	if use0RTT {
+		tokenStore = quic.NewLRUTokenStore(10, 10)
+	}
+
+	tlsConf := &tls.Config{
+		RootCAs:            common.NewCertPoolWithCert(tlsServerCertFile),
+		NextProtos:         []string{common.QperfALPN},
+		ClientSessionCache: clientSessionCache,
 	}
 
 	conf := quic.Config{
@@ -70,13 +86,32 @@ func Run(addr net.UDPAddr, timeToFirstByteOnly bool, printRaw bool, createQLog b
 		MaxStreamReceiveWindow:                           maxReceiveWindow,
 		InitialConnectionReceiveWindow:                   uint64(float64(initialReceiveWindow) * quic.ConnectionFlowControlMultiplier),
 		MaxConnectionReceiveWindow:                       uint64(float64(maxReceiveWindow) * quic.ConnectionFlowControlMultiplier),
+		TokenStore:                                       tokenStore,
+	}
+
+	if use0RTT {
+		err := common.PingToGatherSessionTicketAndToken(addr.String(), tlsConf, &conf)
+		if err != nil {
+			panic(err)
+		}
+		fmt.Printf("stored session ticket and token\n")
 	}
 
 	state.SetStartTime()
 
-	session, err := quic.DialAddr(addr.String(), tlsConf, &conf)
-	if err != nil {
-		panic(err)
+	var session quic.Session
+	if use0RTT {
+		var err error
+		session, err = quic.DialAddrEarly(addr.String(), tlsConf, &conf)
+		if err != nil {
+			panic(err)
+		}
+	} else {
+		var err error
+		session, err = quic.DialAddr(addr.String(), tlsConf, &conf)
+		if err != nil {
+			panic(err)
+		}
 	}
 
 	state.SetEstablishmentTime()
@@ -99,7 +134,7 @@ func Run(addr net.UDPAddr, timeToFirstByteOnly bool, printRaw bool, createQLog b
 	signal.Notify(c, os.Interrupt)
 	go func() {
 		<-c
-		err = session.CloseWithError(quic.ApplicationErrorCode(quic.NoError), "client_closed")
+		_ = session.CloseWithError(quic.ApplicationErrorCode(quic.NoError), "client_closed")
 		os.Exit(0)
 	}()
 

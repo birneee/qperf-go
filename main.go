@@ -2,12 +2,12 @@ package main
 
 import (
 	"fmt"
-	"github.com/birneee/hquic-proxy-go/proxy"
 	"github.com/urfave/cli/v2"
 	"net"
 	"os"
 	"qperf-go/client"
 	"qperf-go/common"
+	"qperf-go/proxy"
 	"qperf-go/server"
 	"time"
 )
@@ -73,6 +73,11 @@ func main() {
 						Name:  "server-side-max-receive-window",
 						Usage: "overwrite the maximum receive window on the server side proxy connection, instead of using the one from the handover state",
 					},
+					&cli.BoolFlag{
+						Name:  "0rtt",
+						Usage: "gather 0-RTT information to the next proxy beforehand",
+						Value: false,
+					},
 				},
 				Action: func(c *cli.Context) error {
 					var nextProxyAddr *net.UDPAddr
@@ -108,7 +113,7 @@ func main() {
 							return fmt.Errorf("failed to parse server-side-max-receive-window: %w", err)
 						}
 					}
-					proxy.RunProxy(
+					proxy.Run(
 						net.UDPAddr{
 							IP:   net.ParseIP(c.String("addr")),
 							Port: c.Int("port"),
@@ -121,6 +126,7 @@ func main() {
 						clientSideInitialReceiveWindow,
 						serverSideInitialReceiveWindow,
 						serverSideMaxReceiveWindow,
+						c.Bool("0rtt"),
 					)
 					return nil
 				},
@@ -184,6 +190,11 @@ func main() {
 						Usage: "the maximum stream-level receive window, in bytes (the connection-level window is 1.5 times higher)",
 						Value: "6MiB",
 					},
+					&cli.BoolFlag{
+						Name:  "0rtt",
+						Usage: "gather 0-RTT information to the server beforehand",
+						Value: false,
+					},
 				},
 				Action: func(c *cli.Context) error {
 					var proxyAddr *net.UDPAddr
@@ -224,6 +235,7 @@ func main() {
 						uint32(initialCongestionWindow),
 						initialReceiveWindow,
 						maxReceiveWindow,
+						c.Bool("0rtt"),
 					)
 					return nil
 				},

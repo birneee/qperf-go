@@ -69,12 +69,12 @@ func Run(addr net.UDPAddr, createQLog bool, migrateAfter time.Duration, proxyAdd
 		NextProtos:   []string{"qperf"},
 	}
 
-	listener, err := quic.ListenAddr(addr.String(), &tlsConf, &conf)
+	listener, err := quic.ListenAddrEarly(addr.String(), &tlsConf, &conf)
 	if err != nil {
 		panic(err)
 	}
 
-	fmt.Printf("starting server with pid %d, port %d, cc cubic, iw %d\n", os.Getpid(), addr.Port, conf.InitialConnectionReceiveWindow)
+	fmt.Printf("starting server with pid %d, port %d, cc cubic, iw %d\n", os.Getpid(), addr.Port, conf.InitialCongestionWindow)
 
 	// migrate
 	if migrateAfter.Nanoseconds() != 0 {
