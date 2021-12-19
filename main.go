@@ -78,6 +78,15 @@ func main() {
 						Usage: "gather 0-RTT information to the next proxy beforehand",
 						Value: false,
 					},
+					&cli.BoolFlag{
+						Name:  "qlog",
+						Usage: "create qlog file",
+					},
+					&cli.StringFlag{
+						Name:  "log-prefix",
+						Usage: "the prefix of the qlog file name",
+						Value: "proxy",
+					},
 				},
 				Action: func(c *cli.Context) error {
 					var nextProxyAddr *net.UDPAddr
@@ -127,6 +136,8 @@ func main() {
 						serverSideInitialReceiveWindow,
 						serverSideMaxReceiveWindow,
 						c.Bool("0rtt"),
+						c.Bool("qlog"),
+						c.String("log-prefix"),
 					)
 					return nil
 				},

@@ -35,11 +35,11 @@ sudo ip netns exec ns-server $QPERF_BIN server --tls-cert ../server.crt --tls-ke
 SERVER_PID=$!
 
 # Start server-side proxy
-sudo ip netns exec ns-server $QPERF_BIN proxy --tls-cert ../proxy.crt --tls-key ../proxy.key --initial-congestion-window 50MB --client-side-initial-receive-window 50MB &
+sudo ip netns exec ns-server $QPERF_BIN proxy --tls-cert ../proxy.crt --tls-key ../proxy.key --initial-congestion-window 50MB --client-side-initial-receive-window 50MB --log-prefix "server_side_proxy" &
 SERVER_SIDE_PROXY_PID=$!
 
 # Start client-side proxy
-sudo ip netns exec ns-client $QPERF_BIN proxy --tls-cert ../proxy.crt --tls-key ../proxy.key --next-proxy 10.0.0.1 --0rtt --next-proxy-cert ../proxy.crt --server-side-initial-receive-window 50MB &
+sudo ip netns exec ns-client $QPERF_BIN proxy --tls-cert ../proxy.crt --tls-key ../proxy.key --next-proxy 10.0.0.1 --0rtt --next-proxy-cert ../proxy.crt --server-side-initial-receive-window 50MB --log-prefix "client_side_proxy" &
 CLIENT_SIDE_PROXY_PID=$!
 
 # give server and proxies some time to setup e.g. to share 0-rtt information

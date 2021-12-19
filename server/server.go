@@ -109,6 +109,13 @@ func handleSession(session quic.Session, sessionId uint64) {
 			fmt.Printf("[session %d] %s\n", sessionId, err)
 			return
 		}
+
+		request, err := bufio.NewReader(stream).ReadString('\n')
+		if string(request) != common.QPerfStartSendingRequest {
+			fmt.Printf("[session %d] %s\n", sessionId, "unknown qperf message")
+			return
+		}
+
 		fmt.Printf("[session %d][stream %d] open\n", sessionId, stream.StreamID())
 		go sendData(stream, sessionId)
 	}

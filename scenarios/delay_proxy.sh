@@ -35,12 +35,12 @@ sudo ip netns exec ns-server $QPERF_BIN server --tls-cert ../server.crt --tls-ke
 SERVER_PID=$!
 
 # Start proxy
-sudo ip netns exec ns-client $QPERF_BIN proxy --tls-cert ../proxy.crt --tls-key ../proxy.key --server-side-max-receive-window 50MB &
+sudo ip netns exec ns-client $QPERF_BIN proxy --tls-cert ../proxy.crt --tls-key ../proxy.key --server-side-max-receive-window 50MB --log-prefix "client_side_proxy" &
 PROXY_PID=$!
 
 # Start client
 sudo ip netns exec ns-client sudo ping 10.0.0.1 -c 1 >/dev/null # because of ARP request/response
-sudo ip netns exec ns-client $QPERF_BIN client --addr 10.0.0.1 --proxy 10.0.0.101 -t 20 --tls-cert ../server.crt --tls-proxy-cert ../proxy.crt &
+sudo ip netns exec ns-client $QPERF_BIN client --addr 10.0.0.1 --proxy 10.0.0.101 -t 2 --tls-cert ../server.crt --tls-proxy-cert ../proxy.crt &
 CLIENT_PID=$!
 
 wait $CLIENT_PID

@@ -1,13 +1,11 @@
 package client
 
 import (
-	"bufio"
 	"crypto/tls"
 	"fmt"
 	"github.com/dustin/go-humanize"
 	"github.com/lucas-clemente/quic-go"
 	"github.com/lucas-clemente/quic-go/logging"
-	"github.com/lucas-clemente/quic-go/qlog"
 	"io"
 	"net"
 	"os"
@@ -28,14 +26,7 @@ func Run(addr net.UDPAddr, timeToFirstByteOnly bool, printRaw bool, createQLog b
 	})
 
 	if createQLog {
-		tracers = append(tracers, qlog.NewTracer(func(p logging.Perspective, connectionID []byte) io.WriteCloser {
-			filename := fmt.Sprintf("client_%x.qlog", connectionID)
-			f, err := os.Create(filename)
-			if err != nil {
-				panic(err)
-			}
-			return common.NewBufferedWriteCloser(bufio.NewWriter(f), f)
-		}))
+		tracers = append(tracers, common.NewQlogTrager("client"))
 	}
 
 	tracers = append(tracers, common.NewMigrationTracer(func(addr net.Addr) {
@@ -144,16 +135,14 @@ func Run(addr net.UDPAddr, timeToFirstByteOnly bool, printRaw bool, createQLog b
 	}
 
 	// send some date to open stream
-	_, err = stream.Write([]byte("qperf start sending"))
+	_, err = stream.Write([]byte(common.QPerfStartSendingRequest))
 	if err != nil {
 		panic(err)
 	}
 
-	stream.CancelWrite(quic.StreamErrorCode(quic.NoError))
-
 	err = receiveFirstByte(stream, &state)
 	if err != nil {
-		panic(err)
+		panic(fmt.Errorf("failed to receive first byte: %w", err))
 	}
 
 	reportFirstByte(&state, printRaw)
