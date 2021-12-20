@@ -74,7 +74,10 @@ func Run(addr net.UDPAddr, createQLog bool, migrateAfter time.Duration, proxyAdd
 		panic(err)
 	}
 
-	fmt.Printf("starting server with pid %d, port %d, cc cubic, iw %d\n", os.Getpid(), addr.Port, conf.InitialCongestionWindow)
+	logger := common.DefaultLogger.WithPrefix("") //TODO make cli argument
+	logger.SetLogLevel(common.LogLevelInfo)
+
+	logger.Infof("starting server with pid %d, port %d, cc cubic, iw %d", os.Getpid(), addr.Port, conf.InitialCongestionWindow)
 
 	// migrate
 	if migrateAfter.Nanoseconds() != 0 {
@@ -91,43 +94,19 @@ func Run(addr net.UDPAddr, createQLog bool, migrateAfter time.Duration, proxyAdd
 	var nextSessionId uint64 = 0
 
 	for {
-		session, err := listener.Accept(context.Background())
+		quicSession, err := listener.Accept(context.Background())
 		if err != nil {
 			panic(err)
 		}
-		fmt.Printf("[session %d] open\n", nextSessionId)
 
-		go handleSession(session, nextSessionId)
+		qperfSession := &qperfServerSession{
+			session:           quicSession,
+			sessionID:         nextSessionId,
+			currentRemoteAddr: quicSession.RemoteAddr(),
+			logger:            common.DefaultLogger.WithPrefix(fmt.Sprintf("session %d", nextSessionId)),
+		}
+
+		go qperfSession.run()
 		nextSessionId += 1
-	}
-}
-
-func handleSession(session quic.Session, sessionId uint64) {
-	for {
-		stream, err := session.AcceptStream(context.Background())
-		if err != nil {
-			fmt.Printf("[session %d] %s\n", sessionId, err)
-			return
-		}
-
-		request, err := bufio.NewReader(stream).ReadString('\n')
-		if string(request) != common.QPerfStartSendingRequest {
-			fmt.Printf("[session %d] %s\n", sessionId, "unknown qperf message")
-			return
-		}
-
-		fmt.Printf("[session %d][stream %d] open\n", sessionId, stream.StreamID())
-		go sendData(stream, sessionId)
-	}
-}
-
-func sendData(stream quic.SendStream, sessionId uint64) {
-	buf := make([]byte, 1024)
-	for {
-		_, err := stream.Write(buf)
-		if err != nil {
-			fmt.Printf("[session %d][stream %d] %s\n", sessionId, stream.StreamID(), err)
-			return
-		}
 	}
 }

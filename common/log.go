@@ -129,6 +129,6 @@ func readLoggingEnv() LogLevel {
 		return LogLevelError
 	default:
 		fmt.Fprintln(os.Stderr, "invalid qperf log level")
-		return LogLevelNothing
+		return LogLevelError
 	}
 }
