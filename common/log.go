@@ -23,13 +23,14 @@ const (
 	LogLevelDebug
 )
 
-const logEnv = "QPERF_LOG_LEVEL"
+const LogEnv = "QPERF_LOG_LEVEL"
 
 // A Logger logs.
 type Logger interface {
 	SetLogLevel(LogLevel)
 	SetLogTimeFormat(format string)
 	WithPrefix(prefix string) Logger
+	Clone() Logger
 	Debug() bool
 
 	Errorf(format string, args ...interface{})
@@ -107,6 +108,14 @@ func (l *defaultLogger) WithPrefix(prefix string) Logger {
 	}
 }
 
+func (l *defaultLogger) Clone() Logger {
+	return &defaultLogger{
+		logLevel:   l.logLevel,
+		timeFormat: l.timeFormat,
+		prefix:     l.prefix,
+	}
+}
+
 // Debug returns true if the log level is LogLevelDebug
 func (l *defaultLogger) Debug() bool {
 	return l.logLevel == LogLevelDebug
@@ -118,7 +127,7 @@ func init() {
 }
 
 func readLoggingEnv() LogLevel {
-	switch strings.ToLower(os.Getenv(logEnv)) {
+	switch strings.ToLower(os.Getenv(LogEnv)) {
 	case "":
 		return LogLevelNothing
 	case "debug":

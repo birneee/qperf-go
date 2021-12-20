@@ -74,8 +74,10 @@ func Run(addr net.UDPAddr, createQLog bool, migrateAfter time.Duration, proxyAdd
 		panic(err)
 	}
 
-	logger := common.DefaultLogger.WithPrefix("") //TODO make cli argument
-	logger.SetLogLevel(common.LogLevelInfo)
+	logger := common.DefaultLogger.Clone()
+	if len(os.Getenv(common.LogEnv)) == 0 {
+		logger.SetLogLevel(common.LogLevelInfo) // log level info is the default
+	}
 
 	logger.Infof("starting server with pid %d, port %d, cc cubic, iw %d", os.Getpid(), addr.Port, conf.InitialCongestionWindow)
 
@@ -103,7 +105,7 @@ func Run(addr net.UDPAddr, createQLog bool, migrateAfter time.Duration, proxyAdd
 			session:           quicSession,
 			sessionID:         nextSessionId,
 			currentRemoteAddr: quicSession.RemoteAddr(),
-			logger:            common.DefaultLogger.WithPrefix(fmt.Sprintf("session %d", nextSessionId)),
+			logger:            logger.WithPrefix(fmt.Sprintf("session %d", nextSessionId)),
 		}
 
 		go qperfSession.run()
