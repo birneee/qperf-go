@@ -1,14 +1,11 @@
 package server
 
 import (
-	"bufio"
 	"context"
 	"crypto/tls"
 	"fmt"
 	"github.com/lucas-clemente/quic-go"
 	"github.com/lucas-clemente/quic-go/logging"
-	"github.com/lucas-clemente/quic-go/qlog"
-	"io"
 	"net"
 	"os"
 	"qperf-go/common"
@@ -33,14 +30,7 @@ func Run(addr net.UDPAddr, createQLog bool, migrateAfter time.Duration, proxyAdd
 	})
 
 	if createQLog {
-		tracers = append(tracers, qlog.NewTracer(func(p logging.Perspective, connectionID []byte) io.WriteCloser {
-			filename := fmt.Sprintf("server_%x.qlog", connectionID)
-			f, err := os.Create(filename)
-			if err != nil {
-				panic(err)
-			}
-			return common.NewBufferedWriteCloser(bufio.NewWriter(f), f)
-		}))
+		tracers = append(tracers, common.NewQlogTrager("server"))
 	}
 
 	if initialReceiveWindow > maxReceiveWindow {
