@@ -235,7 +235,7 @@ func receiveFirstByte(stream quic.ReceiveStream, state *common.State) error {
 }
 
 func receive(reader io.Reader, state *common.State) {
-	buf := make([]byte, 1024)
+	buf := make([]byte, 65536)
 	for {
 		received, err := reader.Read(buf)
 		state.AddReceivedBytes(uint64(received))

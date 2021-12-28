@@ -25,7 +25,7 @@ func (s *qperfServerStream) run() {
 		return
 	}
 
-	buf := make([]byte, 1024)
+	buf := make([]byte, 65536)
 	for {
 		_, err := s.stream.Write(buf)
 		if err != nil {
