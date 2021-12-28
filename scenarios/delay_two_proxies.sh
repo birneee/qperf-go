@@ -27,8 +27,8 @@ sudo ip netns exec ns-client ip link set dev eth-client up
 sudo ip netns exec ns-client ip link set dev lo up # loopback
 
 # Set Delay
-sudo ip netns exec ns-client tc qdisc replace dev eth-client root netem limit 1000000000 delay 500ms
-sudo ip netns exec ns-server tc qdisc replace dev eth-server root netem limit 1000000000 delay 500ms
+sudo ip netns exec ns-client tc qdisc replace dev eth-client root netem limit 7000000 delay 500ms rate 100mbit
+sudo ip netns exec ns-server tc qdisc replace dev eth-server root netem limit 7000000 delay 500ms rate 100mbit
 
 # Start server
 sudo ip netns exec ns-server $QPERF_BIN server --tls-cert ../server.crt --tls-key ../server.key &
