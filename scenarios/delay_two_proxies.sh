@@ -8,6 +8,7 @@ build_qperf
 
 # Increase to recommended maximum buffer size (https://github.com/lucas-clemente/quic-go/wiki/UDP-Receive-Buffer-Size)
 sudo sysctl -w net.core.rmem_max=2500000 >/dev/null
+sudo sysctl -w net.core.wmem_max=2500000 >/dev/null
 
 # Add namespaces
 sudo ip netns add ns-server
@@ -27,15 +28,15 @@ sudo ip netns exec ns-client ip link set dev eth-client up
 sudo ip netns exec ns-client ip link set dev lo up # loopback
 
 # Set Delay
-sudo ip netns exec ns-client tc qdisc replace dev eth-client root netem limit 7000000 delay 500ms rate 100mbit
-sudo ip netns exec ns-server tc qdisc replace dev eth-server root netem limit 7000000 delay 500ms rate 100mbit
+sudo ip netns exec ns-client tc qdisc replace dev eth-client root netem limit 4992 delay 500ms rate 100mbit
+sudo ip netns exec ns-server tc qdisc replace dev eth-server root netem limit 4992 delay 500ms rate 100mbit
 
 # Start server
 sudo ip netns exec ns-server $QPERF_BIN server --tls-cert ../server.crt --tls-key ../server.key &
 SERVER_PID=$!
 
 # Start server-side proxy
-sudo ip netns exec ns-server $QPERF_BIN proxy --tls-cert ../proxy.crt --tls-key ../proxy.key --initial-congestion-window 50MB --client-side-initial-receive-window 50MB --log-prefix "server_side_proxy" &
+sudo ip netns exec ns-server $QPERF_BIN proxy --tls-cert ../proxy.crt --tls-key ../proxy.key --client-side-max-congestion-window 6000 --client-side-max-congestion-window 7800 --client-side-initial-receive-window 50MB --log-prefix "server_side_proxy" &
 SERVER_SIDE_PROXY_PID=$!
 
 # Start client-side proxy
