@@ -15,7 +15,6 @@ import (
 )
 
 // Run client.
-// if proxyAddr is nil, no proxy is used.
 func Run(addr net.UDPAddr, timeToFirstByteOnly bool, printRaw bool, createQLog bool, probeTime time.Duration, tlsServerCertFile string, initialReceiveWindow uint64, maxReceiveWindow uint64, use0RTT bool) {
 	state := common.State{}
 
