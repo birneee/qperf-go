@@ -16,7 +16,7 @@ import (
 
 // Run client.
 // if proxyAddr is nil, no proxy is used.
-func Run(addr net.UDPAddr, timeToFirstByteOnly bool, printRaw bool, createQLog bool, migrateAfter time.Duration, proxyAddr *net.UDPAddr, probeTime time.Duration, tlsServerCertFile string, tlsProxyCertFile string, initialCongestionWindow uint32, initialReceiveWindow uint64, maxReceiveWindow uint64, use0RTT bool) {
+func Run(addr net.UDPAddr, timeToFirstByteOnly bool, printRaw bool, createQLog bool, probeTime time.Duration, tlsServerCertFile string, initialReceiveWindow uint64, maxReceiveWindow uint64, use0RTT bool) {
 	state := common.State{}
 
 	tracers := make([]logging.Tracer, 0)
@@ -37,20 +37,6 @@ func Run(addr net.UDPAddr, timeToFirstByteOnly bool, printRaw bool, createQLog b
 		maxReceiveWindow = initialReceiveWindow
 	}
 
-	var proxyConf *quic.ProxyConfig
-
-	if proxyAddr != nil {
-		proxyConf = &quic.ProxyConfig{
-			Addr: proxyAddr,
-			TlsConf: &tls.Config{
-				RootCAs: common.NewCertPoolWithCert(tlsProxyCertFile),
-			},
-			Config: &quic.Config{
-				LoggerPrefix: "proxy control",
-			},
-		}
-	}
-
 	var clientSessionCache tls.ClientSessionCache
 	if use0RTT {
 		clientSessionCache = tls.NewLRUClientSessionCache(10)
@@ -68,16 +54,12 @@ func Run(addr net.UDPAddr, timeToFirstByteOnly bool, printRaw bool, createQLog b
 	}
 
 	conf := quic.Config{
-		Tracer: logging.NewMultiplexedTracer(tracers...),
-		IgnoreReceived1RTTPacketsUntilFirstPathMigration: proxyAddr != nil, // TODO maybe not necessary for client
-		EnableActiveMigration:                            true,
-		Proxy:                                            proxyConf,
-		InitialCongestionWindow:                          initialCongestionWindow,
-		InitialStreamReceiveWindow:                       initialReceiveWindow,
-		MaxStreamReceiveWindow:                           maxReceiveWindow,
-		InitialConnectionReceiveWindow:                   uint64(float64(initialReceiveWindow) * quic.ConnectionFlowControlMultiplier),
-		MaxConnectionReceiveWindow:                       uint64(float64(maxReceiveWindow) * quic.ConnectionFlowControlMultiplier),
-		TokenStore:                                       tokenStore,
+		Tracer:                         logging.NewMultiplexedTracer(tracers...),
+		InitialStreamReceiveWindow:     initialReceiveWindow,
+		MaxStreamReceiveWindow:         maxReceiveWindow,
+		InitialConnectionReceiveWindow: uint64(float64(initialReceiveWindow) * common.ConnectionFlowControlMultiplier),
+		MaxConnectionReceiveWindow:     uint64(float64(maxReceiveWindow) * common.ConnectionFlowControlMultiplier),
+		TokenStore:                     tokenStore,
 	}
 
 	if use0RTT {
@@ -107,18 +89,6 @@ func Run(addr net.UDPAddr, timeToFirstByteOnly bool, printRaw bool, createQLog b
 
 	state.SetEstablishmentTime()
 	reportEstablishmentTime(&state, printRaw)
-
-	// migrate
-	if migrateAfter.Nanoseconds() != 0 {
-		go func() {
-			time.Sleep(migrateAfter)
-			addr, err := session.MigrateUDPSocket()
-			if err != nil {
-				panic(err)
-			}
-			fmt.Printf("migrated to %s\n", addr.String())
-		}()
-	}
 
 	// close gracefully on interrupt (CTRL+C)
 	c := make(chan os.Signal, 1)

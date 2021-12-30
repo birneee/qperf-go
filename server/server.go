@@ -9,17 +9,10 @@ import (
 	"net"
 	"os"
 	"qperf-go/common"
-	"time"
 )
 
 // Run server.
-// if proxyAddr is nil, no proxy is used.
-func Run(addr net.UDPAddr, createQLog bool, migrateAfter time.Duration, proxyAddr *net.UDPAddr, tlsServerCertFile string, tlsServerKeyFile string, tlsProxyCertFile string, initialCongestionWindow uint32, initialReceiveWindow uint64, maxReceiveWindow uint64) {
-
-	// TODO
-	if proxyAddr != nil {
-		panic("implement me")
-	}
+func Run(addr net.UDPAddr, createQLog bool, tlsServerCertFile string, tlsServerKeyFile string, initialReceiveWindow uint64, maxReceiveWindow uint64) {
 
 	state := common.State{}
 
@@ -38,14 +31,11 @@ func Run(addr net.UDPAddr, createQLog bool, migrateAfter time.Duration, proxyAdd
 	}
 
 	conf := quic.Config{
-		Tracer: logging.NewMultiplexedTracer(tracers...),
-		IgnoreReceived1RTTPacketsUntilFirstPathMigration: proxyAddr != nil,
-		EnableActiveMigration:                            true,
-		InitialCongestionWindow:                          initialCongestionWindow,
-		InitialStreamReceiveWindow:                       initialReceiveWindow,
-		MaxStreamReceiveWindow:                           maxReceiveWindow,
-		InitialConnectionReceiveWindow:                   uint64(float64(initialReceiveWindow) * quic.ConnectionFlowControlMultiplier),
-		MaxConnectionReceiveWindow:                       uint64(float64(maxReceiveWindow) * quic.ConnectionFlowControlMultiplier),
+		Tracer:                         logging.NewMultiplexedTracer(tracers...),
+		InitialStreamReceiveWindow:     initialReceiveWindow,
+		MaxStreamReceiveWindow:         maxReceiveWindow,
+		InitialConnectionReceiveWindow: uint64(float64(initialReceiveWindow) * common.ConnectionFlowControlMultiplier),
+		MaxConnectionReceiveWindow:     uint64(float64(maxReceiveWindow) * common.ConnectionFlowControlMultiplier),
 	}
 
 	//TODO make CLI option
@@ -69,19 +59,7 @@ func Run(addr net.UDPAddr, createQLog bool, migrateAfter time.Duration, proxyAdd
 		logger.SetLogLevel(common.LogLevelInfo) // log level info is the default
 	}
 
-	logger.Infof("starting server with pid %d, port %d, cc cubic, iw %d", os.Getpid(), addr.Port, conf.InitialCongestionWindow)
-
-	// migrate
-	if migrateAfter.Nanoseconds() != 0 {
-		go func() {
-			time.Sleep(migrateAfter)
-			addr, err := listener.MigrateUDPSocket()
-			if err != nil {
-				panic(err)
-			}
-			fmt.Printf("migrated to %s\n", addr.String())
-		}()
-	}
+	logger.Infof("starting server with pid %d, port %d, cc cubic, iw %d", os.Getpid(), addr.Port, common.InitialCongestionWindow)
 
 	var nextSessionId uint64 = 0
 
