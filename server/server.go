@@ -14,7 +14,7 @@ import (
 
 // Run server.
 // if proxyAddr is nil, no proxy is used.
-func Run(addr net.UDPAddr, createQLog bool, migrateAfter time.Duration, proxyAddr *net.UDPAddr, tlsServerCertFile string, tlsServerKeyFile string, tlsProxyCertFile string, initialCongestionWindow uint32, initialReceiveWindow uint64, maxReceiveWindow uint64) {
+func Run(addr net.UDPAddr, createQLog bool, migrateAfter time.Duration, proxyAddr *net.UDPAddr, tlsServerCertFile string, tlsServerKeyFile string, tlsProxyCertFile string, initialCongestionWindow uint32, minCongestionWindow uint32, maxCongestionWindow uint32, initialReceiveWindow uint64, maxReceiveWindow uint64) {
 
 	// TODO
 	if proxyAddr != nil {
@@ -42,6 +42,8 @@ func Run(addr net.UDPAddr, createQLog bool, migrateAfter time.Duration, proxyAdd
 		IgnoreReceived1RTTPacketsUntilFirstPathMigration: proxyAddr != nil,
 		EnableActiveMigration:                            true,
 		InitialCongestionWindow:                          initialCongestionWindow,
+		MinCongestionWindow:                              minCongestionWindow,
+		MaxCongestionWindow:                              maxCongestionWindow,
 		InitialStreamReceiveWindow:                       initialReceiveWindow,
 		MaxStreamReceiveWindow:                           maxReceiveWindow,
 		InitialConnectionReceiveWindow:                   uint64(float64(initialReceiveWindow) * quic.ConnectionFlowControlMultiplier),

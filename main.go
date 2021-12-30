@@ -2,6 +2,7 @@ package main
 
 import (
 	"fmt"
+	"github.com/lucas-clemente/quic-go"
 	"github.com/urfave/cli/v2"
 	"net"
 	"os"
@@ -54,10 +55,20 @@ func main() {
 						Usage: "certificate file to trust the next proxy",
 						Value: "proxy.crt",
 					},
-					&cli.StringFlag{
-						Name:  "initial-congestion-window",
-						Usage: "the initial congestion window to use, in bytes",
-						Value: "39424B",
+					&cli.UintFlag{
+						Name:  "client-side-initial-congestion-window",
+						Usage: "the initial congestion window to use on client side proxy connections, in number of packets",
+						Value: quic.DefaultInitialCongestionWindow,
+					},
+					&cli.UintFlag{
+						Name:  "client-side-min-congestion-window",
+						Usage: "the minimum congestion window to use on client side proxy connections, in number of packets",
+						Value: quic.DefaultMinCongestionWindow,
+					},
+					&cli.UintFlag{
+						Name:  "client-side-max-congestion-window",
+						Usage: "the maximum congestion window to use on client side proxy connections, in number of packets",
+						Value: quic.DefaultMaxCongestionWindow,
 					},
 					//TODO make name and description more clear
 					&cli.StringFlag{
@@ -97,12 +108,9 @@ func main() {
 							panic(err)
 						}
 					}
-					initialCongestionWindow, err := common.ParseByteCountWithUnit(c.String("initial-congestion-window"))
-					if err != nil {
-						return fmt.Errorf("failed to parse initial-congestion-window: %w", err)
-					}
 					var clientSideInitialReceiveWindow uint64
 					if c.IsSet("client-side-initial-receive-window") {
+						var err error
 						clientSideInitialReceiveWindow, err = common.ParseByteCountWithUnit(c.String("client-side-initial-receive-window"))
 						if err != nil {
 							return fmt.Errorf("failed to parse client-side-initial-receive-window: %w", err)
@@ -110,6 +118,7 @@ func main() {
 					}
 					var serverSideInitialReceiveWindow uint64
 					if c.IsSet("server-side-initial-receive-window") {
+						var err error
 						serverSideInitialReceiveWindow, err = common.ParseByteCountWithUnit(c.String("server-side-initial-receive-window"))
 						if err != nil {
 							return fmt.Errorf("failed to parse server-side-initial-receive-window: %w", err)
@@ -117,6 +126,7 @@ func main() {
 					}
 					var serverSideMaxReceiveWindow uint64
 					if c.IsSet("server-side-max-receive-window") {
+						var err error
 						serverSideMaxReceiveWindow, err = common.ParseByteCountWithUnit(c.String("server-side-max-receive-window"))
 						if err != nil {
 							return fmt.Errorf("failed to parse server-side-max-receive-window: %w", err)
@@ -131,7 +141,9 @@ func main() {
 						c.String("tls-key"),
 						nextProxyAddr,
 						c.String("next-proxy-cert"),
-						uint32(initialCongestionWindow),
+						uint32(c.Uint("client-side-initial-congestion-window")),
+						uint32(c.Uint("client-side-min-congestion-window")),
+						uint32(c.Uint("client-side-max-congestion-window")),
 						clientSideInitialReceiveWindow,
 						serverSideInitialReceiveWindow,
 						serverSideMaxReceiveWindow,
@@ -186,10 +198,10 @@ func main() {
 						Usage: "certificate file to trust the proxy",
 						Value: "proxy.crt",
 					},
-					&cli.StringFlag{
+					&cli.UintFlag{
 						Name:  "initial-congestion-window",
-						Usage: "the initial congestion window to use, in bytes",
-						Value: "39424B",
+						Usage: "the initial congestion window to use, in number of packets",
+						Value: quic.DefaultInitialCongestionWindow,
 					},
 					&cli.StringFlag{
 						Name:  "initial-receive-window",
@@ -221,10 +233,6 @@ func main() {
 						println("invalid server address")
 						panic(err)
 					}
-					initialCongestionWindow, err := common.ParseByteCountWithUnit(c.String("initial-congestion-window"))
-					if err != nil {
-						return fmt.Errorf("failed to parse initial-congestion-window: %w", err)
-					}
 					initialReceiveWindow, err := common.ParseByteCountWithUnit(c.String("initial-receive-window"))
 					if err != nil {
 						return fmt.Errorf("failed to parse receive-window: %w", err)
@@ -243,7 +251,7 @@ func main() {
 						time.Duration(c.Uint("t"))*time.Second,
 						c.String("tls-cert"),
 						c.String("tls-proxy-cert"),
-						uint32(initialCongestionWindow),
+						uint32(c.Uint("initial-congestion-window")),
 						initialReceiveWindow,
 						maxReceiveWindow,
 						c.Bool("0rtt"),
@@ -292,10 +300,20 @@ func main() {
 						Usage: "certificate file to trust",
 						Value: "proxy.crt",
 					},
-					&cli.StringFlag{
+					&cli.UintFlag{
 						Name:  "initial-congestion-window",
-						Usage: "the initial congestion window to use, in bytes",
-						Value: "39424B",
+						Usage: "the initial congestion window to use, in number of packets",
+						Value: quic.DefaultInitialCongestionWindow,
+					},
+					&cli.UintFlag{
+						Name:  "min-congestion-window",
+						Usage: "the minimum congestion window to use, in number of packets",
+						Value: quic.DefaultMinCongestionWindow,
+					},
+					&cli.UintFlag{
+						Name:  "max-congestion-window",
+						Usage: "the maximum congestion window to use, in number of packets",
+						Value: quic.DefaultMaxCongestionWindow,
 					},
 					&cli.StringFlag{
 						Name:  "initial-receive-window",
@@ -317,10 +335,6 @@ func main() {
 							panic(err)
 						}
 					}
-					initialCongestionWindow, err := common.ParseByteCountWithUnit(c.String("initial-congestion-window"))
-					if err != nil {
-						return fmt.Errorf("failed to parse initial-congestion-window: %w", err)
-					}
 					initialReceiveWindow, err := common.ParseByteCountWithUnit(c.String("initial-receive-window"))
 					if err != nil {
 						return fmt.Errorf("failed to parse receive-window: %w", err)
@@ -339,7 +353,9 @@ func main() {
 						c.String("tls-cert"),
 						c.String("tls-key"),
 						c.String("tls-proxy-cert"),
-						uint32(initialCongestionWindow),
+						uint32(c.Uint("initial-congestion-window")),
+						uint32(c.Uint("min-congestion-window")),
+						uint32(c.Uint("max-congestion-window")),
 						initialReceiveWindow,
 						maxReceiveWindow,
 					)

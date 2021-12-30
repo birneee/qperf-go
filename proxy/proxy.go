@@ -15,7 +15,7 @@ import (
 // if nextProxyAddr is nil, don't add a proxy
 // if clientSideInitialReceiveWindow is 0, use window from handover state
 // if serverSideInitialReceiveWindow is 0, use window from handover state
-func Run(addr net.UDPAddr, tlsProxyCertFile string, tlsProxyKeyFile string, nextProxyAddr *net.UDPAddr, tlsNextProxyCertFile string, initialCongestionWindow uint32, clientSideInitialReceiveWindow uint64, serverSideInitialReceiveWindow uint64, serverSideMaxReceiveWindow uint64, nextProxy0Rtt bool, qlog bool, logPrefix string) {
+func Run(addr net.UDPAddr, tlsProxyCertFile string, tlsProxyKeyFile string, nextProxyAddr *net.UDPAddr, tlsNextProxyCertFile string, clientSideInitialCongestionWindow uint32, clientSideMinCongestionWindow uint32, clientSideMaxCongestionWindow uint32, clientSideInitialReceiveWindow uint64, serverSideInitialReceiveWindow uint64, serverSideMaxReceiveWindow uint64, nextProxy0Rtt bool, qlog bool, logPrefix string) {
 
 	controlTlsCert, err := tls.LoadX509KeyPair(tlsProxyCertFile, tlsProxyKeyFile)
 	if err != nil {
@@ -63,7 +63,9 @@ func Run(addr net.UDPAddr, tlsProxyCertFile string, tlsProxyKeyFile string, next
 
 	clientSideProxyConf := &proxy.ProxyConnectionConfig{
 		OverwriteInitialReceiveWindow: clientSideInitialReceiveWindow,
-		InitialCongestionWindow:       initialCongestionWindow,
+		InitialCongestionWindow:       clientSideInitialCongestionWindow,
+		MinCongestionWindow:           clientSideMinCongestionWindow,
+		MaxCongestionWindow:           clientSideMaxCongestionWindow,
 		Tracer:                        clientFacingTracer,
 	}
 
