@@ -8,6 +8,7 @@ import (
 	"github.com/lucas-clemente/quic-go/logging"
 	"net"
 	"qperf-go/common"
+	"time"
 )
 
 // Run starts a new proxy
@@ -37,7 +38,8 @@ func Run(addr net.UDPAddr, tlsProxyCertFile string, tlsProxyKeyFile string, next
 		}
 
 		config := &quic.Config{
-			TokenStore: quic.NewLRUTokenStore(10, 10),
+			TokenStore:           quic.NewLRUTokenStore(10, 10),
+			HandshakeIdleTimeout: 10 * time.Second,
 		}
 
 		if nextProxy0Rtt {
