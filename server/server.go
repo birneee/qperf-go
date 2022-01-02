@@ -37,6 +37,10 @@ func Run(addr net.UDPAddr, createQLog bool, migrateAfter time.Duration, proxyAdd
 		maxReceiveWindow = initialReceiveWindow
 	}
 
+	if initialCongestionWindow < minCongestionWindow {
+		initialCongestionWindow = minCongestionWindow
+	}
+
 	conf := quic.Config{
 		Tracer: logging.NewMultiplexedTracer(tracers...),
 		IgnoreReceived1RTTPacketsUntilFirstPathMigration: proxyAddr != nil,
@@ -48,6 +52,7 @@ func Run(addr net.UDPAddr, createQLog bool, migrateAfter time.Duration, proxyAdd
 		MaxStreamReceiveWindow:                           maxReceiveWindow,
 		InitialConnectionReceiveWindow:                   uint64(float64(initialReceiveWindow) * quic.ConnectionFlowControlMultiplier),
 		MaxConnectionReceiveWindow:                       uint64(float64(maxReceiveWindow) * quic.ConnectionFlowControlMultiplier),
+		//DisablePathMTUDiscovery:                          true,
 	}
 
 	//TODO make CLI option
