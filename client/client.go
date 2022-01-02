@@ -83,7 +83,7 @@ func Run(addr net.UDPAddr, timeToFirstByteOnly bool, printRaw bool, createQLog b
 	if use0RTT {
 		err := common.PingToGatherSessionTicketAndToken(addr.String(), tlsConf, &conf)
 		if err != nil {
-			panic(err)
+			panic(fmt.Errorf("failed to prepare 0-RTT: %w", err))
 		}
 		fmt.Printf("stored session ticket and token\n")
 	}
@@ -95,13 +95,13 @@ func Run(addr net.UDPAddr, timeToFirstByteOnly bool, printRaw bool, createQLog b
 		var err error
 		session, err = quic.DialAddrEarly(addr.String(), tlsConf, &conf)
 		if err != nil {
-			panic(err)
+			panic(fmt.Errorf("failed to establish connection: %w", err))
 		}
 	} else {
 		var err error
 		session, err = quic.DialAddr(addr.String(), tlsConf, &conf)
 		if err != nil {
-			panic(err)
+			panic(fmt.Errorf("failed to establish connection: %w", err))
 		}
 	}
 
@@ -114,7 +114,7 @@ func Run(addr net.UDPAddr, timeToFirstByteOnly bool, printRaw bool, createQLog b
 			time.Sleep(migrateAfter)
 			addr, err := session.MigrateUDPSocket()
 			if err != nil {
-				panic(err)
+				panic(fmt.Errorf("failed to migrate UDP socket: %w", err))
 			}
 			fmt.Printf("migrated to %s\n", addr.String())
 		}()
@@ -131,13 +131,13 @@ func Run(addr net.UDPAddr, timeToFirstByteOnly bool, printRaw bool, createQLog b
 
 	stream, err := session.OpenStream()
 	if err != nil {
-		panic(err)
+		panic(fmt.Errorf("failed to open stream: %w", err))
 	}
 
 	// send some date to open stream
 	_, err = stream.Write([]byte(common.QPerfStartSendingRequest))
 	if err != nil {
-		panic(err)
+		panic(fmt.Errorf("failed to write to stream: %w", err))
 	}
 
 	err = receiveFirstByte(stream, &state)
@@ -163,7 +163,7 @@ func Run(addr net.UDPAddr, timeToFirstByteOnly bool, printRaw bool, createQLog b
 
 	err = session.CloseWithError(quic.ApplicationErrorCode(quic.NoError), "runtime_reached")
 	if err != nil {
-		panic(err)
+		panic(fmt.Errorf("failed to close connection: %w", err))
 	}
 
 	reportTotal(&state, printRaw)
