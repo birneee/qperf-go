@@ -11,18 +11,30 @@ import (
 	"os"
 	"os/signal"
 	"qperf-go/common"
+	"sync/atomic"
 	"time"
 )
+
+type client struct {
+	state    common.State
+	printRaw bool
+	// atomic 0=false 1=true
+	runtimeReached int32
+}
 
 // Run client.
 // if proxyAddr is nil, no proxy is used.
 func Run(addr net.UDPAddr, timeToFirstByteOnly bool, printRaw bool, createQLog bool, migrateAfter time.Duration, proxyAddr *net.UDPAddr, probeTime time.Duration, tlsServerCertFile string, tlsProxyCertFile string, initialCongestionWindow uint32, initialReceiveWindow uint64, maxReceiveWindow uint64, use0RTT bool) {
-	state := common.State{}
+	c := client{
+		state:          common.State{},
+		printRaw:       printRaw,
+		runtimeReached: 0,
+	}
 
 	tracers := make([]logging.Tracer, 0)
 
 	tracers = append(tracers, common.StateTracer{
-		State: &state,
+		State: &c.state,
 	})
 
 	if createQLog {
@@ -88,7 +100,7 @@ func Run(addr net.UDPAddr, timeToFirstByteOnly bool, printRaw bool, createQLog b
 		fmt.Printf("stored session ticket and token\n")
 	}
 
-	state.SetStartTime()
+	c.state.SetStartTime()
 
 	var session quic.Session
 	if use0RTT {
@@ -105,8 +117,8 @@ func Run(addr net.UDPAddr, timeToFirstByteOnly bool, printRaw bool, createQLog b
 		}
 	}
 
-	state.SetEstablishmentTime()
-	reportEstablishmentTime(&state, printRaw)
+	c.state.SetEstablishmentTime()
+	c.reportEstablishmentTime(&c.state)
 
 	// migrate
 	if migrateAfter.Nanoseconds() != 0 {
@@ -121,10 +133,10 @@ func Run(addr net.UDPAddr, timeToFirstByteOnly bool, printRaw bool, createQLog b
 	}
 
 	// close gracefully on interrupt (CTRL+C)
-	c := make(chan os.Signal, 1)
-	signal.Notify(c, os.Interrupt)
+	intChan := make(chan os.Signal, 1)
+	signal.Notify(intChan, os.Interrupt)
 	go func() {
-		<-c
+		<-intChan
 		_ = session.CloseWithError(quic.ApplicationErrorCode(quic.NoError), "client_closed")
 		os.Exit(0)
 	}()
@@ -140,38 +152,38 @@ func Run(addr net.UDPAddr, timeToFirstByteOnly bool, printRaw bool, createQLog b
 		panic(fmt.Errorf("failed to write to stream: %w", err))
 	}
 
-	err = receiveFirstByte(stream, &state)
+	err = c.receiveFirstByte(stream)
 	if err != nil {
 		panic(fmt.Errorf("failed to receive first byte: %w", err))
 	}
 
-	reportFirstByte(&state, printRaw)
+	c.reportFirstByte(&c.state)
 
 	if !timeToFirstByteOnly {
-		go receive(stream, &state)
+		go c.receive(stream)
 
 		for {
-			if time.Now().Sub(state.GetFirstByteTime()) > probeTime {
+			if time.Now().Sub(c.state.GetFirstByteTime()) > probeTime {
 				break
 			}
 			time.Sleep(1 * time.Second)
-			report(&state, printRaw)
+			c.report(&c.state)
 		}
 	}
 
+	atomic.StoreInt32(&c.runtimeReached, 1)
 	stream.CancelRead(quic.StreamErrorCode(quic.NoError))
-
 	err = session.CloseWithError(quic.ApplicationErrorCode(quic.NoError), "runtime_reached")
 	if err != nil {
 		panic(fmt.Errorf("failed to close connection: %w", err))
 	}
 
-	reportTotal(&state, printRaw)
+	c.reportTotal(&c.state)
 }
 
-func reportEstablishmentTime(state *common.State, printRaw bool) {
+func (c *client) reportEstablishmentTime(state *common.State) {
 	establishmentTime := state.EstablishmentTime().Sub(state.StartTime())
-	if printRaw {
+	if c.printRaw {
 		fmt.Printf("connection establishment time: %f s\n",
 			establishmentTime.Seconds())
 	} else {
@@ -180,8 +192,8 @@ func reportEstablishmentTime(state *common.State, printRaw bool) {
 	}
 }
 
-func reportFirstByte(state *common.State, printRaw bool) {
-	if printRaw {
+func (c *client) reportFirstByte(state *common.State) {
+	if c.printRaw {
 		fmt.Printf("time to first byte: %f s\n",
 			state.GetFirstByteTime().Sub(state.StartTime()).Seconds())
 	} else {
@@ -190,9 +202,9 @@ func reportFirstByte(state *common.State, printRaw bool) {
 	}
 }
 
-func report(state *common.State, printRaw bool) {
+func (c *client) report(state *common.State) {
 	receivedBytes, receivedPackets, delta := state.GetAndResetReport()
-	if printRaw {
+	if c.printRaw {
 		fmt.Printf("second %f: %f bit/s, bytes received: %d B, packets received: %d\n",
 			time.Now().Sub(state.GetFirstByteTime()).Seconds(),
 			float64(receivedBytes)*8/delta.Seconds(),
@@ -207,9 +219,9 @@ func report(state *common.State, printRaw bool) {
 	}
 }
 
-func reportTotal(state *common.State, printRaw bool) {
+func (c *client) reportTotal(state *common.State) {
 	receivedBytes, receivedPackets := state.Total()
-	if printRaw {
+	if c.printRaw {
 		fmt.Printf("total: bytes received: %d B, packets received: %d\n",
 			receivedBytes,
 			receivedPackets)
@@ -220,7 +232,7 @@ func reportTotal(state *common.State, printRaw bool) {
 	}
 }
 
-func receiveFirstByte(stream quic.ReceiveStream, state *common.State) error {
+func (c *client) receiveFirstByte(stream quic.ReceiveStream) error {
 	buf := make([]byte, 1)
 	for {
 		received, err := stream.Read(buf)
@@ -228,19 +240,23 @@ func receiveFirstByte(stream quic.ReceiveStream, state *common.State) error {
 			return err
 		}
 		if received != 0 {
-			state.AddReceivedBytes(uint64(received))
+			c.state.AddReceivedBytes(uint64(received))
 			return nil
 		}
 	}
 }
 
-func receive(reader io.Reader, state *common.State) {
+func (c *client) receive(reader io.Reader) {
 	buf := make([]byte, 65536)
 	for {
 		received, err := reader.Read(buf)
-		state.AddReceivedBytes(uint64(received))
+		c.state.AddReceivedBytes(uint64(received))
 		if err != nil {
-			//TODO differentiate errors from planed close
+			if atomic.LoadInt32(&c.runtimeReached) == 0 {
+				panic(err)
+			} else {
+				return
+			}
 		}
 	}
 }
