@@ -218,6 +218,11 @@ func main() {
 						Usage: "gather 0-RTT information to the server beforehand",
 						Value: false,
 					},
+					&cli.BoolFlag{
+						Name:  "xse",
+						Usage: "use XSE-QUIC extension; handshake will fail if not supported by server",
+						Value: false,
+					},
 				},
 				Action: func(c *cli.Context) error {
 					var proxyAddr *net.UDPAddr
@@ -255,6 +260,7 @@ func main() {
 						initialReceiveWindow,
 						maxReceiveWindow,
 						c.Bool("0rtt"),
+						c.Bool("xse"),
 					)
 					return nil
 				},
@@ -325,6 +331,11 @@ func main() {
 						Usage: "the maximum stream-level receive window, in bytes (the connection-level window is 1.5 times higher)",
 						Value: "6MiB",
 					},
+					&cli.BoolFlag{
+						Name:  "no-xse",
+						Usage: "disable XSE-QUIC extension; XSE-QUIC handshakes will fail",
+						Value: false,
+					},
 				},
 				Action: func(c *cli.Context) error {
 					var proxyAddr *net.UDPAddr
@@ -358,6 +369,7 @@ func main() {
 						uint32(c.Uint("max-congestion-window")),
 						initialReceiveWindow,
 						maxReceiveWindow,
+						c.Bool("no-xse"),
 					)
 					return nil
 				},
