@@ -90,6 +90,7 @@ func Run(addr net.UDPAddr, timeToFirstByteOnly bool, printRaw bool, createQLog b
 		InitialConnectionReceiveWindow:                   uint64(float64(initialReceiveWindow) * quic.ConnectionFlowControlMultiplier),
 		MaxConnectionReceiveWindow:                       uint64(float64(maxReceiveWindow) * quic.ConnectionFlowControlMultiplier),
 		TokenStore:                                       tokenStore,
+		ExtraStreamEncryption:                            true, //TODO make cli option
 	}
 
 	if use0RTT {
