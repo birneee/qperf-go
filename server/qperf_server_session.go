@@ -6,6 +6,7 @@ import (
 	"github.com/lucas-clemente/quic-go"
 	"net"
 	"qperf-go/common"
+	"sync"
 )
 
 type qperfServerSession struct {
@@ -14,15 +15,19 @@ type qperfServerSession struct {
 	// used to detect migration
 	currentRemoteAddr net.Addr
 	logger            common.Logger
+	closeOnce         sync.Once
 }
 
 func (s *qperfServerSession) run() {
 	s.logger.Infof("open")
+	if s.session.ExtraStreamEncrypted() {
+		s.logger.Infof("use XSE-QUIC")
+	}
 
 	for {
 		quicStream, err := s.session.AcceptStream(context.Background())
 		if err != nil {
-			s.logger.Errorf("%s", err)
+			s.close(err)
 			return
 		}
 
@@ -41,4 +46,19 @@ func (s *qperfServerSession) checkIfRemoteAddrChanged() {
 		s.currentRemoteAddr = s.session.RemoteAddr()
 		s.logger.Infof("migrated to %s", s.currentRemoteAddr)
 	}
+}
+
+func (s *qperfServerSession) close(err error) {
+	s.closeOnce.Do(func() {
+		switch err := err.(type) {
+		case *quic.ApplicationError:
+			if err.ErrorCode == common.RuntimeReachedErrorCode {
+				s.logger.Infof("close")
+			} else {
+				s.logger.Errorf("close with error: %s", err)
+			}
+		default:
+			s.logger.Errorf("close with error: %s", err)
+		}
+	})
 }

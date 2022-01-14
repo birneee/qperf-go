@@ -121,6 +121,10 @@ func Run(addr net.UDPAddr, timeToFirstByteOnly bool, printRaw bool, createQLog b
 	c.state.SetEstablishmentTime()
 	c.reportEstablishmentTime(&c.state)
 
+	if session.ExtraStreamEncrypted() {
+		println("use XSE-QUIC")
+	}
+
 	// migrate
 	if migrateAfter.Nanoseconds() != 0 {
 		go func() {
@@ -174,7 +178,7 @@ func Run(addr net.UDPAddr, timeToFirstByteOnly bool, printRaw bool, createQLog b
 
 	atomic.StoreInt32(&c.runtimeReached, 1)
 	stream.CancelRead(quic.StreamErrorCode(quic.NoError))
-	err = session.CloseWithError(quic.ApplicationErrorCode(quic.NoError), "runtime_reached")
+	err = session.CloseWithError(common.RuntimeReachedErrorCode, "runtime_reached")
 	if err != nil {
 		panic(fmt.Errorf("failed to close connection: %w", err))
 	}
