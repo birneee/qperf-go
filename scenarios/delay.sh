@@ -13,7 +13,7 @@ sudo ip netns exec ns-server $QPERF_BIN server --tls-cert ../server.crt --tls-ke
 SERVER_PID=$!
 
 # Start client
-sudo ip netns exec ns-client $QPERF_BIN client --addr 10.0.0.1 -t 20 --tls-cert ../server.crt &
+sudo ip netns exec ns-client $QPERF_BIN client --addr $SERVER_IP -t 20 --tls-cert ../server.crt &
 CLIENT_PID=$!
 
 wait $CLIENT_PID
