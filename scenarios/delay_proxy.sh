@@ -13,7 +13,7 @@ sudo ip netns exec ns-server $QPERF_BIN server --tls-cert ../server.crt --tls-ke
 SERVER_PID=$!
 
 # Start client side proxy
-sudo ip netns exec ns-client-proxy $QPERF_BIN proxy --tls-cert ../proxy.crt --tls-key ../proxy.key --server-side-max-receive-window 50MB --log-prefix "client_side_proxy" &
+sudo ip netns exec ns-client-side-proxy $QPERF_BIN proxy --tls-cert ../proxy.crt --tls-key ../proxy.key --server-side-max-receive-window 50MB --log-prefix "client_side_proxy" &
 PROXY_PID=$!
 
 # Start client

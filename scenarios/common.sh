@@ -30,70 +30,70 @@ function setup_environment() {
   # Add namespaces
   sudo ip netns add ns-client
   sudo ip netns add ns-server
-  sudo ip netns add ns-client-proxy
-  sudo ip netns add ns-server-proxy
-  sudo ip netns add ns-client-gateway
-  sudo ip netns add ns-server-gateway
+  sudo ip netns add ns-client-side-proxy
+  sudo ip netns add ns-server-side-proxy
+  sudo ip netns add ns-client-side-gateway
+  sudo ip netns add ns-server-side-gateway
 
   # Add and link interfaces
-  sudo ip netns exec ns-client ip link add eth-client type veth peer name eth-client netns ns-client-gateway
-  sudo ip netns exec ns-server ip link add eth-server type veth peer name eth-server netns ns-server-gateway
-  sudo ip netns exec ns-client-proxy ip link add eth-clientproxy type veth peer name eth-clientproxy netns ns-client-gateway
-  sudo ip netns exec ns-server-proxy ip link add eth-serverproxy type veth peer name eth-serverproxy netns ns-server-gateway
-  sudo ip netns exec ns-client-gateway ip link add eth-sat type veth peer name eth-sat netns ns-server-gateway
+  sudo ip netns exec ns-client ip link add eth-client type veth peer name eth-client netns ns-client-side-gateway
+  sudo ip netns exec ns-server ip link add eth-server type veth peer name eth-server netns ns-server-side-gateway
+  sudo ip netns exec ns-client-side-proxy ip link add eth-proxy type veth peer name eth-proxy netns ns-client-side-gateway
+  sudo ip netns exec ns-server-side-proxy ip link add eth-proxy type veth peer name eth-proxy netns ns-server-side-gateway
+  sudo ip netns exec ns-client-side-gateway ip link add eth-sat type veth peer name eth-sat netns ns-server-side-gateway
 
   # Add bridges
-  sudo ip netns exec ns-client-gateway ip link add br-client type bridge
-  sudo ip netns exec ns-server-gateway ip link add br-server type bridge
+  sudo ip netns exec ns-client-side-gateway ip link add br-client type bridge
+  sudo ip netns exec ns-server-side-gateway ip link add br-server type bridge
 
   # Connect links via bridges
-  sudo ip netns exec ns-client-gateway ip link set eth-client master br-client
-  sudo ip netns exec ns-client-gateway ip link set eth-clientproxy master br-client
-  sudo ip netns exec ns-client-gateway ip link set eth-sat master br-client
-  sudo ip netns exec ns-server-gateway ip link set eth-server master br-server
-  sudo ip netns exec ns-server-gateway ip link set eth-serverproxy master br-server
-  sudo ip netns exec ns-server-gateway ip link set eth-sat master br-server
+  sudo ip netns exec ns-client-side-gateway ip link set eth-client master br-client
+  sudo ip netns exec ns-client-side-gateway ip link set eth-proxy master br-client
+  sudo ip netns exec ns-client-side-gateway ip link set eth-sat master br-client
+  sudo ip netns exec ns-server-side-gateway ip link set eth-server master br-server
+  sudo ip netns exec ns-server-side-gateway ip link set eth-proxy master br-server
+  sudo ip netns exec ns-server-side-gateway ip link set eth-sat master br-server
 
   # Assign IP adresses
   sudo ip netns exec ns-server ip addr add $SERVER_IP/24 dev eth-server
-  sudo ip netns exec ns-server-proxy ip addr add $SERVER_SIDE_PROXY_IP/24 dev eth-serverproxy
+  sudo ip netns exec ns-server-side-proxy ip addr add $SERVER_SIDE_PROXY_IP/24 dev eth-proxy
   sudo ip netns exec ns-client ip addr add $CLIENT_IP/24 dev eth-client
-  sudo ip netns exec ns-client-proxy ip addr add $CLIENT_SIDE_PROXY_IP/24 dev eth-clientproxy
+  sudo ip netns exec ns-client-side-proxy ip addr add $CLIENT_SIDE_PROXY_IP/24 dev eth-proxy
 
   # Set interfaces up
   sudo ip netns exec ns-server ip link set dev eth-server up
   sudo ip netns exec ns-client ip link set dev eth-client up
-  sudo ip netns exec ns-client-proxy ip link set dev eth-clientproxy up
-  sudo ip netns exec ns-server-proxy ip link set dev eth-serverproxy up
-  sudo ip netns exec ns-client-gateway ip link set dev eth-client up
-  sudo ip netns exec ns-client-gateway ip link set dev eth-sat up
-  sudo ip netns exec ns-client-gateway ip link set dev eth-clientproxy up
-  sudo ip netns exec ns-server-gateway ip link set dev eth-server up
-  sudo ip netns exec ns-server-gateway ip link set dev eth-sat up
-  sudo ip netns exec ns-server-gateway ip link set dev eth-serverproxy up
+  sudo ip netns exec ns-client-side-proxy ip link set dev eth-proxy up
+  sudo ip netns exec ns-server-side-proxy ip link set dev eth-proxy up
+  sudo ip netns exec ns-client-side-gateway ip link set dev eth-client up
+  sudo ip netns exec ns-client-side-gateway ip link set dev eth-sat up
+  sudo ip netns exec ns-client-side-gateway ip link set dev eth-proxy up
+  sudo ip netns exec ns-server-side-gateway ip link set dev eth-server up
+  sudo ip netns exec ns-server-side-gateway ip link set dev eth-sat up
+  sudo ip netns exec ns-server-side-gateway ip link set dev eth-proxy up
 
   # Set bridges up
-  sudo ip netns exec ns-client-gateway ip link set br-client up
-  sudo ip netns exec ns-server-gateway ip link set br-server up
+  sudo ip netns exec ns-client-side-gateway ip link set br-client up
+  sudo ip netns exec ns-server-side-gateway ip link set br-server up
 
   # Set Delay
-  sudo ip netns exec ns-client-gateway tc qdisc replace dev eth-sat root netem limit $LIMIT delay ${DELAY}ms rate ${BANDWIDTH}mbit
-  sudo ip netns exec ns-server-gateway tc qdisc replace dev eth-sat root netem limit $LIMIT delay ${DELAY}ms rate ${BANDWIDTH}mbit
+  sudo ip netns exec ns-client-side-gateway tc qdisc replace dev eth-sat root netem limit $LIMIT delay ${DELAY}ms rate ${BANDWIDTH}mbit
+  sudo ip netns exec ns-server-side-gateway tc qdisc replace dev eth-sat root netem limit $LIMIT delay ${DELAY}ms rate ${BANDWIDTH}mbit
 
   # Ping to resolve MAC through ARP
   sudo ip netns exec ns-client sudo ping $SERVER_IP -c 1 >/dev/null
   sudo ip netns exec ns-client sudo ping $CLIENT_SIDE_PROXY_IP -c 1 >/dev/null
-  sudo ip netns exec ns-client-proxy sudo ping $SERVER_IP -c 1 >/dev/null
-  sudo ip netns exec ns-client-proxy sudo ping $SERVER_SIDE_PROXY_IP -c 1 >/dev/null
-  sudo ip netns exec ns-server-proxy sudo ping $SERVER_IP -c 1 >/dev/null
+  sudo ip netns exec ns-client-side-proxy sudo ping $SERVER_IP -c 1 >/dev/null
+  sudo ip netns exec ns-client-side-proxy sudo ping $SERVER_SIDE_PROXY_IP -c 1 >/dev/null
+  sudo ip netns exec ns-server-side-proxy sudo ping $SERVER_IP -c 1 >/dev/null
 }
 
 function cleanup_environment() {
   # Delete namespaces
   sudo ip netns delete ns-client
   sudo ip netns delete ns-server
-  sudo ip netns delete ns-client-proxy
-  sudo ip netns delete ns-server-proxy
-  sudo ip netns delete ns-client-gateway
-  sudo ip netns delete ns-server-gateway
+  sudo ip netns delete ns-client-side-proxy
+  sudo ip netns delete ns-server-side-proxy
+  sudo ip netns delete ns-client-side-gateway
+  sudo ip netns delete ns-server-side-gateway
 }
