@@ -54,6 +54,10 @@ func Run(addr net.UDPAddr, createQLog bool, migrateAfter time.Duration, proxyAdd
 		MaxConnectionReceiveWindow:                       uint64(float64(maxReceiveWindow) * quic.ConnectionFlowControlMultiplier),
 		ExtraStreamEncryption:                            !noXse,
 		//DisablePathMTUDiscovery:                          true,
+		//TODO make option
+		//AcceptToken: func(_ net.Addr, _ *quic.Token) bool {
+		//	return true
+		//},
 	}
 
 	//TODO make CLI option
