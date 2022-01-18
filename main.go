@@ -219,6 +219,11 @@ func main() {
 						Value: false,
 					},
 					&cli.BoolFlag{
+						Name:  "proxy-0rtt",
+						Usage: "gather 0-RTT information to the proxy beforehand",
+						Value: false,
+					},
+					&cli.BoolFlag{
 						Name:  "xse",
 						Usage: "use XSE-QUIC extension; handshake will fail if not supported by server",
 						Value: false,
@@ -260,6 +265,7 @@ func main() {
 						initialReceiveWindow,
 						maxReceiveWindow,
 						c.Bool("0rtt"),
+						c.Bool("proxy-0rtt"),
 						c.Bool("xse"),
 					)
 					return nil

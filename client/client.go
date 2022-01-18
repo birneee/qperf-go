@@ -3,6 +3,7 @@ package client
 import (
 	"crypto/tls"
 	"fmt"
+	"github.com/birneee/hquic-proxy-go/proxy"
 	"github.com/dustin/go-humanize"
 	"github.com/lucas-clemente/quic-go"
 	"github.com/lucas-clemente/quic-go/logging"
@@ -11,24 +12,20 @@ import (
 	"os"
 	"os/signal"
 	"qperf-go/common"
-	"sync/atomic"
 	"time"
 )
 
 type client struct {
 	state    common.State
 	printRaw bool
-	// atomic 0=false 1=true
-	runtimeReached int32
 }
 
 // Run client.
 // if proxyAddr is nil, no proxy is used.
-func Run(addr net.UDPAddr, timeToFirstByteOnly bool, printRaw bool, createQLog bool, migrateAfter time.Duration, proxyAddr *net.UDPAddr, probeTime time.Duration, tlsServerCertFile string, tlsProxyCertFile string, initialCongestionWindow uint32, initialReceiveWindow uint64, maxReceiveWindow uint64, use0RTT bool, useXse bool) {
+func Run(addr net.UDPAddr, timeToFirstByteOnly bool, printRaw bool, createQLog bool, migrateAfter time.Duration, proxyAddr *net.UDPAddr, probeTime time.Duration, tlsServerCertFile string, tlsProxyCertFile string, initialCongestionWindow uint32, initialReceiveWindow uint64, maxReceiveWindow uint64, use0RTT bool, useProxy0RTT, useXse bool) {
 	c := client{
-		state:          common.State{},
-		printRaw:       printRaw,
-		runtimeReached: 0,
+		state:    common.State{},
+		printRaw: printRaw,
 	}
 
 	tracers := make([]logging.Tracer, 0)
@@ -55,22 +52,34 @@ func Run(addr net.UDPAddr, timeToFirstByteOnly bool, printRaw bool, createQLog b
 		proxyConf = &quic.ProxyConfig{
 			Addr: proxyAddr,
 			TlsConf: &tls.Config{
-				RootCAs: common.NewCertPoolWithCert(tlsProxyCertFile),
+				RootCAs:            common.NewCertPoolWithCert(tlsProxyCertFile),
+				NextProtos:         []string{proxy.HQUICProxyALPN},
+				ClientSessionCache: tls.NewLRUClientSessionCache(1),
 			},
 			Config: &quic.Config{
-				LoggerPrefix: "proxy control",
+				LoggerPrefix:          "proxy control",
+				TokenStore:            quic.NewLRUTokenStore(1, 1),
+				EnableActiveMigration: true,
 			},
 		}
 	}
 
+	if useProxy0RTT {
+		err := common.PingToGatherSessionTicketAndToken(proxyConf.Addr.String(), proxyConf.TlsConf, proxyConf.Config)
+		if err != nil {
+			panic(fmt.Errorf("failed to prepare 0-RTT to proxy: %w", err))
+		}
+		fmt.Printf("stored proxy session ticket and token\n")
+	}
+
 	var clientSessionCache tls.ClientSessionCache
 	if use0RTT {
-		clientSessionCache = tls.NewLRUClientSessionCache(10)
+		clientSessionCache = tls.NewLRUClientSessionCache(1)
 	}
 
 	var tokenStore quic.TokenStore
 	if use0RTT {
-		tokenStore = quic.NewLRUTokenStore(10, 10)
+		tokenStore = quic.NewLRUTokenStore(1, 1)
 	}
 
 	tlsConf := &tls.Config{
@@ -176,8 +185,6 @@ func Run(addr net.UDPAddr, timeToFirstByteOnly bool, printRaw bool, createQLog b
 		}
 	}
 
-	atomic.StoreInt32(&c.runtimeReached, 1)
-	stream.CancelRead(quic.StreamErrorCode(quic.NoError))
 	err = session.CloseWithError(common.RuntimeReachedErrorCode, "runtime_reached")
 	if err != nil {
 		panic(fmt.Errorf("failed to close connection: %w", err))
@@ -257,10 +264,13 @@ func (c *client) receive(reader io.Reader) {
 		received, err := reader.Read(buf)
 		c.state.AddReceivedBytes(uint64(received))
 		if err != nil {
-			if atomic.LoadInt32(&c.runtimeReached) == 0 {
+			switch err := err.(type) {
+			case *quic.ApplicationError:
+				if err.ErrorCode == common.RuntimeReachedErrorCode {
+					return
+				}
+			default:
 				panic(err)
-			} else {
-				return
 			}
 		}
 	}
