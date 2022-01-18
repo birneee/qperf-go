@@ -7,6 +7,8 @@ import (
 	"github.com/lucas-clemente/quic-go"
 	"github.com/lucas-clemente/quic-go/logging"
 	"net"
+	"os"
+	"os/signal"
 	"qperf-go/common"
 	"time"
 )
@@ -33,12 +35,12 @@ func Run(addr net.UDPAddr, tlsProxyCertFile string, tlsProxyKeyFile string, next
 	if nextProxyAddr != nil {
 		tlsConf := &tls.Config{
 			RootCAs:            common.NewCertPoolWithCert(tlsNextProxyCertFile),
-			ClientSessionCache: tls.NewLRUClientSessionCache(10),
+			ClientSessionCache: tls.NewLRUClientSessionCache(1),
 			NextProtos:         []string{proxy.HQUICProxyALPN},
 		}
 
 		config := &quic.Config{
-			TokenStore:           quic.NewLRUTokenStore(10, 10),
+			TokenStore:           quic.NewLRUTokenStore(1, 1),
 			HandshakeIdleTimeout: 10 * time.Second,
 		}
 
@@ -75,10 +77,18 @@ func Run(addr net.UDPAddr, tlsProxyCertFile string, tlsProxyKeyFile string, next
 		OverwriteInitialReceiveWindow: serverSideInitialReceiveWindow,
 		OverwriteMaxReceiveWindow:     serverSideMaxReceiveWindow,
 		Tracer:                        serverFacingTracer,
+		Proxy:                         nextProxyConfig,
 	}
 
-	err = proxy.RunProxy(addr, controlTlsConfig, controlConfig, nextProxyConfig, clientSideProxyConf, serverSideProxyConf)
+	prox, err := proxy.RunProxy(addr, controlTlsConfig, controlConfig, clientSideProxyConf, serverSideProxyConf)
 	if err != nil {
 		panic(err)
 	}
+
+	// close gracefully on interrupt (CTRL+C)
+	intChan := make(chan os.Signal, 1)
+	signal.Notify(intChan, os.Interrupt)
+	<-intChan
+	_ = prox.Close()
+	os.Exit(0)
 }
