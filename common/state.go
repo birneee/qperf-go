@@ -32,31 +32,25 @@ func (s *State) AddReceivedPackets(receivedPackets uint64) {
 	s.mutex.Unlock()
 }
 
-// GetAndResetReport
-//
-// returns (receivedBytes, receivedPackets, delta)
-func (s *State) GetAndResetReport() (uint64, uint64, time.Duration) {
+func (s *State) GetAndResetReport() (receivedBytes uint64, receivedPackets uint64, delta time.Duration) {
 	now := time.Now()
 	s.mutex.Lock()
-	receivedBytes := s.totalReceivedBytes - s.lastReportReceivedBytes
-	receivedPackets := s.totalReceivedPackets - s.lastReportReceivedPackets
-	delta := now.Sub(MaxTime([]time.Time{s.lastReportTime, s.firstByteTime, s.startTime}))
+	receivedBytes = s.totalReceivedBytes - s.lastReportReceivedBytes
+	receivedPackets = s.totalReceivedPackets - s.lastReportReceivedPackets
+	delta = now.Sub(MaxTime([]time.Time{s.lastReportTime, s.firstByteTime, s.startTime}))
 	s.lastReportTime = now
 	s.lastReportReceivedBytes = s.totalReceivedBytes
 	s.lastReportReceivedPackets = s.totalReceivedPackets
 	s.mutex.Unlock()
-	return receivedBytes, receivedPackets, delta
+	return
 }
 
-// Total
-//
-// returns (receivedBytes, receivedPackets)
-func (s *State) Total() (uint64, uint64) {
+func (s *State) Total() (receivedBytes uint64, receivedPackets uint64) {
 	s.mutex.Lock()
-	receivedBytes := s.totalReceivedBytes
-	receivedPackets := s.totalReceivedPackets
+	receivedBytes = s.totalReceivedBytes
+	receivedPackets = s.totalReceivedPackets
 	s.mutex.Unlock()
-	return receivedBytes, receivedPackets
+	return
 }
 
 func (s *State) StartTime() time.Time {
