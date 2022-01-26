@@ -28,6 +28,11 @@ func Run(addr net.UDPAddr, timeToFirstByteOnly bool, printRaw bool, createQLog b
 		printRaw: printRaw,
 	}
 
+	logger := common.DefaultLogger.Clone()
+	if len(os.Getenv(common.LogEnv)) == 0 {
+		logger.SetLogLevel(common.LogLevelInfo) // log level info is the default
+	}
+
 	tracers := make([]logging.Tracer, 0)
 
 	tracers = append(tracers, common.StateTracer{
@@ -35,7 +40,7 @@ func Run(addr net.UDPAddr, timeToFirstByteOnly bool, printRaw bool, createQLog b
 	})
 
 	if createQLog {
-		tracers = append(tracers, common.NewQlogTrager("client"))
+		tracers = append(tracers, common.NewQlogTrager("client", logger))
 	}
 
 	tracers = append(tracers, common.NewMigrationTracer(func(addr net.Addr) {

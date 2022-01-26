@@ -16,21 +16,20 @@ import (
 // if proxyAddr is nil, no proxy is used.
 func Run(addr net.UDPAddr, createQLog bool, migrateAfter time.Duration, proxyAddr *net.UDPAddr, tlsServerCertFile string, tlsServerKeyFile string, tlsProxyCertFile string, initialCongestionWindow uint32, minCongestionWindow uint32, maxCongestionWindow uint32, initialReceiveWindow uint64, maxReceiveWindow uint64, noXse bool) {
 
+	logger := common.DefaultLogger.Clone()
+	if len(os.Getenv(common.LogEnv)) == 0 {
+		logger.SetLogLevel(common.LogLevelInfo) // log level info is the default
+	}
+
 	// TODO
 	if proxyAddr != nil {
 		panic("implement me")
 	}
 
-	state := common.State{}
-
 	tracers := make([]logging.Tracer, 0)
 
-	tracers = append(tracers, common.StateTracer{
-		State: &state,
-	})
-
 	if createQLog {
-		tracers = append(tracers, common.NewQlogTrager("server"))
+		tracers = append(tracers, common.NewQlogTrager("server", logger))
 	}
 
 	if initialReceiveWindow > maxReceiveWindow {
@@ -74,11 +73,6 @@ func Run(addr net.UDPAddr, createQLog bool, migrateAfter time.Duration, proxyAdd
 	listener, err := quic.ListenAddrEarly(addr.String(), &tlsConf, &conf)
 	if err != nil {
 		panic(err)
-	}
-
-	logger := common.DefaultLogger.Clone()
-	if len(os.Getenv(common.LogEnv)) == 0 {
-		logger.SetLogLevel(common.LogLevelInfo) // log level info is the default
 	}
 
 	logger.Infof("starting server with pid %d, port %d, cc cubic, iw %d", os.Getpid(), addr.Port, conf.InitialCongestionWindow)
