@@ -4,12 +4,22 @@ CLIENT_IP="10.0.0.101"
 CLIENT_SIDE_PROXY_IP="10.0.0.102"
 SERVER_IP="10.0.0.1"
 SERVER_SIDE_PROXY_IP="10.0.0.2"
-BANDWIDTH=100 # in mbit/s
-DELAY=500 # in ms
-RTT=`expr $DELAY \* 2` # in ms
-PACKET_SIZE=1252 # in byte
-LIMIT=`expr $BANDWIDTH \* $DELAY \* 1000 / $PACKET_SIZE / 8` # in packets
-
+if [ -z $BANDWIDTH ]; then
+  BANDWIDTH=100 # in mbit/s
+fi
+if [ -z $RTT ]; then
+  RTT=1000 # in ms
+fi
+BDP=$(expr $BANDWIDTH \* $RTT \* 1000 / 8) # in byte per second
+MTU_SIZE=1280 # in byte
+MAX_IN_FLIGHT=$(expr $BDP / $MTU_SIZE) # in packets, in both ways
+PATH_BUFFER=$(expr $MAX_IN_FLIGHT / 5) # in packets
+LIMIT=$(expr $MAX_IN_FLIGHT / 2 + $PATH_BUFFER) # in packets, one way
+if [ $QLOG == 1 ]; then
+  QLOG='--qlog'
+else
+  unset QLOG
+fi
 
 function build_qperf() {
   (cd .. ; go build qperf-go)
@@ -22,6 +32,8 @@ function build_qperf() {
 function setup_environment() {
   echo "Bandwidth: $BANDWIDTH Mbit/s"
   echo "RTT: $RTT ms"
+  echo "BDP: $BDP B/s"
+  echo "Max In-Flight Packets: $MAX_IN_FLIGHT"
 
   # Increase to recommended maximum buffer size (https://github.com/lucas-clemente/quic-go/wiki/UDP-Receive-Buffer-Size)
   sudo sysctl -w net.core.rmem_max=2500000 >/dev/null
@@ -76,9 +88,13 @@ function setup_environment() {
   sudo ip netns exec ns-client-side-gateway ip link set br-client up
   sudo ip netns exec ns-server-side-gateway ip link set br-server up
 
-  # Set Delay
-  sudo ip netns exec ns-client-side-gateway tc qdisc replace dev eth-sat root netem limit $LIMIT delay ${DELAY}ms rate ${BANDWIDTH}mbit
-  sudo ip netns exec ns-server-side-gateway tc qdisc replace dev eth-sat root netem limit $LIMIT delay ${DELAY}ms rate ${BANDWIDTH}mbit
+  # Set RTT
+  sudo ip netns exec ns-client-side-gateway tc qdisc replace dev eth-sat root netem limit $LIMIT delay $(expr $RTT / 2)ms rate ${BANDWIDTH}mbit
+  sudo ip netns exec ns-server-side-gateway tc qdisc replace dev eth-sat root netem limit $LIMIT delay $(expr $RTT / 2)ms rate ${BANDWIDTH}mbit
+
+  # Set MTU
+  sudo ip netns exec ns-client-side-gateway ip link set dev eth-sat mtu $MTU_SIZE
+  sudo ip netns exec ns-server-side-gateway ip link set dev eth-sat mtu $MTU_SIZE
 
   # Ping to resolve MAC through ARP
   sudo ip netns exec ns-client sudo ping $SERVER_IP -c 1 >/dev/null
