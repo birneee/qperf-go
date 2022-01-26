@@ -4,7 +4,6 @@ package common
 
 import (
 	"fmt"
-	"log"
 	"os"
 	"strings"
 	"time"
@@ -58,7 +57,6 @@ func (l *defaultLogger) SetLogLevel(level LogLevel) {
 // SetLogTimeFormat sets the format of the timestamp
 // an empty string disables the logging of timestamps
 func (l *defaultLogger) SetLogTimeFormat(format string) {
-	log.SetFlags(0) // disable timestamp logging done by the log package
 	l.timeFormat = format
 }
 
@@ -92,7 +90,7 @@ func (l *defaultLogger) logMessage(format string, args ...interface{}) {
 	if len(l.prefix) > 0 {
 		pre += l.prefix + " "
 	}
-	log.Printf(pre+format, args...)
+	fmt.Printf(pre+format+"\n", args...)
 }
 
 func (l *defaultLogger) WithPrefix(prefix string) Logger {
