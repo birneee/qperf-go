@@ -94,9 +94,14 @@ func main() {
 						Usage: "create qlog file",
 					},
 					&cli.StringFlag{
-						Name:  "log-prefix",
+						Name:  "qlog-prefix",
 						Usage: "the prefix of the qlog file name",
 						Value: "proxy",
+					},
+					&cli.StringFlag{
+						Name:  "log-prefix",
+						Usage: "the prefix of the command line output",
+						Value: "",
 					},
 				},
 				Action: func(c *cli.Context) error {
@@ -150,6 +155,7 @@ func main() {
 						c.Bool("0rtt"),
 						c.Bool("qlog"),
 						c.String("log-prefix"),
+						c.String("qlog-prefix"),
 					)
 					return nil
 				},
@@ -228,6 +234,16 @@ func main() {
 						Usage: "use XSE-QUIC extension; handshake will fail if not supported by server",
 						Value: false,
 					},
+					&cli.StringFlag{
+						Name:  "qlog-prefix",
+						Usage: "the prefix of the qlog file name",
+						Value: "client",
+					},
+					&cli.StringFlag{
+						Name:  "log-prefix",
+						Usage: "the prefix of the command line output",
+						Value: "",
+					},
 				},
 				Action: func(c *cli.Context) error {
 					var proxyAddr *net.UDPAddr
@@ -267,6 +283,8 @@ func main() {
 						c.Bool("0rtt"),
 						c.Bool("proxy-0rtt"),
 						c.Bool("xse"),
+						c.String("log-prefix"),
+						c.String("qlog-prefix"),
 					)
 					return nil
 				},
@@ -294,10 +312,6 @@ func main() {
 						Usage: "seconds after which the udp socket is migrated",
 					},
 					&cli.StringFlag{
-						Name:  "proxy",
-						Usage: "the proxy to use, in the form \"host:port\", default port 18081 if not specified",
-					},
-					&cli.StringFlag{
 						Name:  "tls-cert",
 						Usage: "certificate file to use",
 						Value: "server.crt",
@@ -306,11 +320,6 @@ func main() {
 						Name:  "tls-key",
 						Usage: "key file to use",
 						Value: "server.key",
-					},
-					&cli.StringFlag{
-						Name:  "tls-proxy-cert",
-						Usage: "certificate file to trust",
-						Value: "proxy.crt",
 					},
 					&cli.UintFlag{
 						Name:  "initial-congestion-window",
@@ -342,16 +351,18 @@ func main() {
 						Usage: "disable XSE-QUIC extension; XSE-QUIC handshakes will fail",
 						Value: false,
 					},
+					&cli.StringFlag{
+						Name:  "qlog-prefix",
+						Usage: "the prefix of the qlog file name",
+						Value: "server",
+					},
+					&cli.StringFlag{
+						Name:  "log-prefix",
+						Usage: "the prefix of the command line output",
+						Value: "",
+					},
 				},
 				Action: func(c *cli.Context) error {
-					var proxyAddr *net.UDPAddr
-					if c.IsSet("proxy") {
-						var err error
-						proxyAddr, err = common.ParseResolveHost(c.String("proxy"), common.DefaultProxyControlPort)
-						if err != nil {
-							panic(err)
-						}
-					}
 					initialReceiveWindow, err := common.ParseByteCountWithUnit(c.String("initial-receive-window"))
 					if err != nil {
 						return fmt.Errorf("failed to parse receive-window: %w", err)
@@ -366,16 +377,16 @@ func main() {
 					},
 						c.Bool("qlog"),
 						time.Duration(c.Uint64("migrate"))*time.Second,
-						proxyAddr,
 						c.String("tls-cert"),
 						c.String("tls-key"),
-						c.String("tls-proxy-cert"),
 						uint32(c.Uint("initial-congestion-window")),
 						uint32(c.Uint("min-congestion-window")),
 						uint32(c.Uint("max-congestion-window")),
 						initialReceiveWindow,
 						maxReceiveWindow,
 						c.Bool("no-xse"),
+						c.String("log-prefix"),
+						c.String("qlog-prefix"),
 					)
 					return nil
 				},

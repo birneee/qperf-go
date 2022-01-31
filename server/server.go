@@ -14,22 +14,14 @@ import (
 
 // Run server.
 // if proxyAddr is nil, no proxy is used.
-func Run(addr net.UDPAddr, createQLog bool, migrateAfter time.Duration, proxyAddr *net.UDPAddr, tlsServerCertFile string, tlsServerKeyFile string, tlsProxyCertFile string, initialCongestionWindow uint32, minCongestionWindow uint32, maxCongestionWindow uint32, initialReceiveWindow uint64, maxReceiveWindow uint64, noXse bool) {
+func Run(addr net.UDPAddr, createQLog bool, migrateAfter time.Duration, tlsServerCertFile string, tlsServerKeyFile string, initialCongestionWindow uint32, minCongestionWindow uint32, maxCongestionWindow uint32, initialReceiveWindow uint64, maxReceiveWindow uint64, noXse bool, logPrefix string, qlogPrefix string) {
 
-	logger := common.DefaultLogger.Clone()
-	if len(os.Getenv(common.LogEnv)) == 0 {
-		logger.SetLogLevel(common.LogLevelInfo) // log level info is the default
-	}
-
-	// TODO
-	if proxyAddr != nil {
-		panic("implement me")
-	}
+	logger := common.DefaultLogger.WithPrefix(logPrefix)
 
 	tracers := make([]logging.Tracer, 0)
 
 	if createQLog {
-		tracers = append(tracers, common.NewQlogTrager("server", logger))
+		tracers = append(tracers, common.NewQlogTrager(qlogPrefix, logger))
 	}
 
 	if initialReceiveWindow > maxReceiveWindow {
@@ -41,17 +33,16 @@ func Run(addr net.UDPAddr, createQLog bool, migrateAfter time.Duration, proxyAdd
 	}
 
 	conf := quic.Config{
-		Tracer: logging.NewMultiplexedTracer(tracers...),
-		IgnoreReceived1RTTPacketsUntilFirstPathMigration: proxyAddr != nil,
-		EnableActiveMigration:                            true,
-		InitialCongestionWindow:                          initialCongestionWindow,
-		MinCongestionWindow:                              minCongestionWindow,
-		MaxCongestionWindow:                              maxCongestionWindow,
-		InitialStreamReceiveWindow:                       initialReceiveWindow,
-		MaxStreamReceiveWindow:                           maxReceiveWindow,
-		InitialConnectionReceiveWindow:                   uint64(float64(initialReceiveWindow) * quic.ConnectionFlowControlMultiplier),
-		MaxConnectionReceiveWindow:                       uint64(float64(maxReceiveWindow) * quic.ConnectionFlowControlMultiplier),
-		ExtraStreamEncryption:                            !noXse,
+		Tracer:                         logging.NewMultiplexedTracer(tracers...),
+		EnableActiveMigration:          true,
+		InitialCongestionWindow:        initialCongestionWindow,
+		MinCongestionWindow:            minCongestionWindow,
+		MaxCongestionWindow:            maxCongestionWindow,
+		InitialStreamReceiveWindow:     initialReceiveWindow,
+		MaxStreamReceiveWindow:         maxReceiveWindow,
+		InitialConnectionReceiveWindow: uint64(float64(initialReceiveWindow) * quic.ConnectionFlowControlMultiplier),
+		MaxConnectionReceiveWindow:     uint64(float64(maxReceiveWindow) * quic.ConnectionFlowControlMultiplier),
+		ExtraStreamEncryption:          !noXse,
 		//DisablePathMTUDiscovery:                          true,
 		//TODO make option
 		//AcceptToken: func(_ net.Addr, _ *quic.Token) bool {
@@ -85,7 +76,7 @@ func Run(addr net.UDPAddr, createQLog bool, migrateAfter time.Duration, proxyAdd
 			if err != nil {
 				panic(err)
 			}
-			fmt.Printf("migrated to %s\n", addr.String())
+			logger.Infof("migrated to %s", addr.String())
 		}()
 	}
 

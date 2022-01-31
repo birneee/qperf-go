@@ -9,11 +9,11 @@ build_qperf
 setup_environment
 
 # Start server
-sudo ip netns exec ns-server $QPERF_BIN server --tls-cert ../server.crt --tls-key ../server.key $QLOG &
+sudo ip netns exec ns-server $QPERF_BIN server --tls-cert ../server.crt --tls-key ../server.key --log-prefix="server" $QLOG &
 SERVER_PID=$!
 
 # Start client
-sudo ip netns exec ns-client $QPERF_BIN client --addr $SERVER_IP -t 40 --tls-cert ../server.crt $QLOG $XSE &
+sudo ip netns exec ns-client $QPERF_BIN client --addr $SERVER_IP -t 40 --tls-cert ../server.crt --log-prefix "client" $QLOG $XSE &
 CLIENT_PID=$!
 
 wait $CLIENT_PID

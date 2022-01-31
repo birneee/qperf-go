@@ -18,12 +18,9 @@ import (
 // if nextProxyAddr is nil, don't add a proxy
 // if clientSideInitialReceiveWindow is 0, use window from handover state
 // if serverSideInitialReceiveWindow is 0, use window from handover state
-func Run(addr net.UDPAddr, tlsProxyCertFile string, tlsProxyKeyFile string, nextProxyAddr *net.UDPAddr, tlsNextProxyCertFile string, clientSideInitialCongestionWindow uint32, clientSideMinCongestionWindow uint32, clientSideMaxCongestionWindow uint32, clientSideInitialReceiveWindow uint64, serverSideInitialReceiveWindow uint64, serverSideMaxReceiveWindow uint64, nextProxy0Rtt bool, qlog bool, logPrefix string) {
+func Run(addr net.UDPAddr, tlsProxyCertFile string, tlsProxyKeyFile string, nextProxyAddr *net.UDPAddr, tlsNextProxyCertFile string, clientSideInitialCongestionWindow uint32, clientSideMinCongestionWindow uint32, clientSideMaxCongestionWindow uint32, clientSideInitialReceiveWindow uint64, serverSideInitialReceiveWindow uint64, serverSideMaxReceiveWindow uint64, nextProxy0Rtt bool, qlog bool, logPrefix string, qlogPrefix string) {
 
 	logger := common.DefaultLogger.WithPrefix(logPrefix)
-	if len(os.Getenv(common.LogEnv)) == 0 {
-		logger.SetLogLevel(common.LogLevelInfo) // log level info is the default
-	}
 
 	controlTlsCert, err := tls.LoadX509KeyPair(tlsProxyCertFile, tlsProxyKeyFile)
 	if err != nil {
@@ -34,7 +31,9 @@ func Run(addr net.UDPAddr, tlsProxyCertFile string, tlsProxyKeyFile string, next
 		Certificates: []tls.Certificate{controlTlsCert},
 	}
 
-	controlConfig := &quic.Config{}
+	controlConfig := &quic.Config{
+		LoggerPrefix: logPrefix,
+	}
 
 	var nextProxyConfig *quic.ProxyConfig
 	if nextProxyAddr != nil {
@@ -66,8 +65,8 @@ func Run(addr net.UDPAddr, tlsProxyCertFile string, tlsProxyKeyFile string, next
 	var serverFacingTracer logging.Tracer
 	var clientFacingTracer logging.Tracer
 	if qlog {
-		clientFacingTracer = common.NewQlogTrager(fmt.Sprintf("%s_client_facing", logPrefix), logger)
-		serverFacingTracer = common.NewQlogTrager(fmt.Sprintf("%s_server_facing", logPrefix), logger)
+		clientFacingTracer = common.NewQlogTrager(fmt.Sprintf("%s_client_facing", qlogPrefix), logger)
+		serverFacingTracer = common.NewQlogTrager(fmt.Sprintf("%s_server_facing", qlogPrefix), logger)
 	}
 
 	clientSideProxyConf := &proxy.ProxyConnectionConfig{
