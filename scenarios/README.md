@@ -30,13 +30,16 @@ Following environment variables can be used to configure the scenarios.
 - `QLOG`
   - enable qlog output for client, server and proxies (0 or 1)
   - default: 0
+- `XSE`
+  - enable XSE-QUIC extension (0 or 1)
+  - default: 0
 
 ### Examples
 ```bash
-sudo RTT=250 BANDWIDTH=1000 QLOG=1 ./delay_two_proxies.sh 
+RTT=250 BANDWIDTH=1000 QLOG=1 ./delay_two_proxies.sh 
 ```
 ```bash
-sudo ./delay.sh 
+./delay.sh 
 ```
 
 ## Migration Emulation

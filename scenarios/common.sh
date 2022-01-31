@@ -15,10 +15,15 @@ MTU_SIZE=1280 # in byte
 MAX_IN_FLIGHT=$(expr $BDP / $MTU_SIZE) # in packets, in both ways
 PATH_BUFFER=$(expr $MAX_IN_FLIGHT / 5) # in packets
 LIMIT=$(expr $MAX_IN_FLIGHT / 2 + $PATH_BUFFER) # in packets, one way
-if [ $QLOG == 1 ]; then
+if [ "$QLOG" == "1" ]; then
   QLOG='--qlog'
 else
   unset QLOG
+fi
+if [ "$XSE" == "1" ]; then
+  XSE='--xse'
+else
+  unset XSE
 fi
 
 function build_qperf() {
