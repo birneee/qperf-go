@@ -11,7 +11,7 @@ require (
 
 replace github.com/lucas-clemente/quic-go => ../quic-go
 replace github.com/birneee/hquic-proxy-go => ../hquic-proxy-go
-replace github.com/marten-seemann/qtls-go1-17 v0.2.0 => github.com/birneee/qtls-go1-17 v0.2.0
+replace github.com/marten-seemann/qtls-go1-17 v0.1.0 => github.com/birneee/qtls-go1-17 v0.3.0
 
 require (
 	github.com/cheekybits/genny v1.0.0 // indirect
@@ -20,7 +20,8 @@ require (
 	github.com/fsnotify/fsnotify v1.4.9 // indirect
 	github.com/go-task/slim-sprig v0.0.0-20210107165309-348f09dbbbc0 // indirect
 	github.com/marten-seemann/qtls-go1-16 v0.1.4 // indirect
-	github.com/marten-seemann/qtls-go1-17 v0.2.0 // indirect
+	github.com/marten-seemann/qtls-go1-17 v0.1.0 // indirect
+	github.com/marten-seemann/qtls-go1-18 v0.1.0-beta.1 // indirect
 	github.com/nxadm/tail v1.4.8 // indirect
 	github.com/onsi/ginkgo v1.16.4 // indirect
 	github.com/russross/blackfriday/v2 v2.0.1 // indirect
