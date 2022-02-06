@@ -136,3 +136,7 @@ func (a StateConnectionTracer) Debug(name, msg string) {
 func (a StateConnectionTracer) UpdatedPath(newRemote net.Addr) {
 	// ignore
 }
+
+func (a StateConnectionTracer) XseReceiveRecord(_ logging.StreamID, _ int, _ int) {
+	// ignore
+}
