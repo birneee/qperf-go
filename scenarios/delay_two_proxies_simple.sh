@@ -16,7 +16,7 @@ sudo ip netns exec ns-server $QPERF_BIN server --tls-cert ../server.crt --tls-ke
 SERVER_PID=$!
 
 # Start server-side proxy
-sudo ip netns exec ns-server-side-proxy $QPERF_BIN proxy --tls-cert ../proxy.crt --tls-key ../proxy.key --client-facing-min-congestion-window $CONGESTION_WINDOW --client-facing-max-congestion-window $CONGESTION_WINDOW --log-prefix "server_side_proxy" --qlog-prefix "server_side_proxy" $QLOG &
+sudo ip netns exec ns-server-side-proxy $QPERF_BIN proxy --tls-cert ../proxy.crt --tls-key ../proxy.key --client-facing-initial-congestion-window $CONGESTION_WINDOW  --log-prefix "server_side_proxy" --qlog-prefix "server_side_proxy" $QLOG &
 SERVER_SIDE_PROXY_PID=$!
 
 # Start client-side proxy

@@ -48,7 +48,7 @@ func main() {
 					},
 					&cli.StringFlag{
 						Name:  "next-proxy",
-						Usage: "the additional, server-side proxy to use, in the form \"host:port\", default port 18081 if not specified",
+						Usage: "the additional, server-facing proxy to use, in the form \"host:port\", default port 18081 if not specified",
 					},
 					&cli.StringFlag{
 						Name:  "next-proxy-cert",
@@ -56,33 +56,31 @@ func main() {
 						Value: "proxy.crt",
 					},
 					&cli.UintFlag{
-						Name:  "client-side-initial-congestion-window",
-						Usage: "the initial congestion window to use on client side proxy connections, in number of packets",
+						Name:  "client-facing-initial-congestion-window",
+						Usage: "the initial congestion window to use on client facing proxy connections, in number of packets",
 						Value: quic.DefaultInitialCongestionWindow,
 					},
 					&cli.UintFlag{
-						Name:  "client-side-min-congestion-window",
-						Usage: "the minimum congestion window to use on client side proxy connections, in number of packets",
+						Name:  "client-facing-min-congestion-window",
+						Usage: "the minimum congestion window to use on client facing proxy connections, in number of packets",
 						Value: quic.DefaultMinCongestionWindow,
 					},
 					&cli.UintFlag{
-						Name:  "client-side-max-congestion-window",
-						Usage: "the maximum congestion window to use on client side proxy connections, in number of packets",
+						Name:  "client-facing-max-congestion-window",
+						Usage: "the maximum congestion window to use on client facing proxy connections, in number of packets",
 						Value: quic.DefaultMaxCongestionWindow,
 					},
-					//TODO make name and description more clear
 					&cli.StringFlag{
-						Name:  "client-side-initial-receive-window",
-						Usage: "overwrite the initial receive window on the client side proxy connection, instead of using the one from the handover state",
-					},
-					//TODO make name and description more clear
-					&cli.StringFlag{
-						Name:  "server-side-initial-receive-window",
-						Usage: "overwrite the initial receive window on the server side proxy connection, instead of using the one from the handover state",
+						Name:  "client-facing-initial-receive-window",
+						Usage: "the initial receive window on the client facing proxy connection, in bytes, overwrites the value from the handover state",
 					},
 					&cli.StringFlag{
-						Name:  "server-side-max-receive-window",
-						Usage: "overwrite the maximum receive window on the server side proxy connection, instead of using the one from the handover state",
+						Name:  "server-facing-initial-receive-window",
+						Usage: "the initial receive window on the server facing proxy connection, in bytes, overwrites the value from the handover state",
+					},
+					&cli.StringFlag{
+						Name:  "server-facing-max-receive-window",
+						Usage: "the maximum receive window on the server facing proxy connection, in bytes, overwrites the value from the handover state",
 					},
 					&cli.BoolFlag{
 						Name:  "0rtt",
@@ -114,27 +112,27 @@ func main() {
 						}
 					}
 					var clientSideInitialReceiveWindow uint64
-					if c.IsSet("client-side-initial-receive-window") {
+					if c.IsSet("client-facing-initial-receive-window") {
 						var err error
-						clientSideInitialReceiveWindow, err = common.ParseByteCountWithUnit(c.String("client-side-initial-receive-window"))
+						clientSideInitialReceiveWindow, err = common.ParseByteCountWithUnit(c.String("client-facing-initial-receive-window"))
 						if err != nil {
-							return fmt.Errorf("failed to parse client-side-initial-receive-window: %w", err)
+							return fmt.Errorf("failed to parse client-facing-initial-receive-window: %w", err)
 						}
 					}
 					var serverSideInitialReceiveWindow uint64
-					if c.IsSet("server-side-initial-receive-window") {
+					if c.IsSet("server-facing-initial-receive-window") {
 						var err error
-						serverSideInitialReceiveWindow, err = common.ParseByteCountWithUnit(c.String("server-side-initial-receive-window"))
+						serverSideInitialReceiveWindow, err = common.ParseByteCountWithUnit(c.String("server-facing-initial-receive-window"))
 						if err != nil {
-							return fmt.Errorf("failed to parse server-side-initial-receive-window: %w", err)
+							return fmt.Errorf("failed to parse server-facing-initial-receive-window: %w", err)
 						}
 					}
 					var serverSideMaxReceiveWindow uint64
-					if c.IsSet("server-side-max-receive-window") {
+					if c.IsSet("server-facing-max-receive-window") {
 						var err error
-						serverSideMaxReceiveWindow, err = common.ParseByteCountWithUnit(c.String("server-side-max-receive-window"))
+						serverSideMaxReceiveWindow, err = common.ParseByteCountWithUnit(c.String("server-facing-max-receive-window"))
 						if err != nil {
-							return fmt.Errorf("failed to parse server-side-max-receive-window: %w", err)
+							return fmt.Errorf("failed to parse server-facing-max-receive-window: %w", err)
 						}
 					}
 					proxy.Run(
@@ -146,9 +144,9 @@ func main() {
 						c.String("tls-key"),
 						nextProxyAddr,
 						c.String("next-proxy-cert"),
-						uint32(c.Uint("client-side-initial-congestion-window")),
-						uint32(c.Uint("client-side-min-congestion-window")),
-						uint32(c.Uint("client-side-max-congestion-window")),
+						uint32(c.Uint("client-facing-initial-congestion-window")),
+						uint32(c.Uint("client-facing-min-congestion-window")),
+						uint32(c.Uint("client-facing-max-congestion-window")),
 						clientSideInitialReceiveWindow,
 						serverSideInitialReceiveWindow,
 						serverSideMaxReceiveWindow,

@@ -25,6 +25,11 @@ if [ "$XSE" == "1" ]; then
 else
   unset XSE
 fi
+if [ "$RAW" == "1" ]; then
+  RAW='--print-raw'
+else
+  unset RAW
+fi
 
 function build_qperf() {
   (cd .. ; go build qperf-go)
