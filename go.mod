@@ -2,11 +2,11 @@ module qperf-go
 
 go 1.17
 
-replace github.com/lucas-clemente/quic-go => github.com/birneee/quic-go v0.24.0
-
-replace github.com/birneee/hquic-proxy-go => github.com/birneee/hquic-proxy-go v0.1.0
-
-replace github.com/marten-seemann/qtls-go1-17 => github.com/birneee/qtls-go1-17 v0.4.0
+replace (
+	github.com/lucas-clemente/quic-go => github.com/birneee/quic-go v0.25.0
+	github.com/birneee/hquic-proxy-go => github.com/birneee/hquic-proxy-go v0.1.0
+	github.com/marten-seemann/qtls-go1-17 => github.com/birneee/qtls-go1-17 v0.4.0
+)
 
 require (
 	github.com/birneee/hquic-proxy-go v1.0.0
