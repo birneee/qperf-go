@@ -1,5 +1,14 @@
 #!/bin/bash
-QPERF_BIN="../qperf-go"
+if [ -z $QPERF_BIN ]; then
+  QPERF_BIN="${BASH_SOURCE%/*}/../qperf-go"
+fi
+if [ -z $CERT_DIR ]; then
+  CERT_DIR="${BASH_SOURCE%/*}/.."
+fi
+SERVER_CRT="$CERT_DIR/server.crt"
+SERVER_KEY="$CERT_DIR/server.key"
+PROXY_CRT="$CERT_DIR/proxy.crt"
+PROXY_KEY="$CERT_DIR/proxy.key"
 CLIENT_IP="10.0.0.101"
 CLIENT_SIDE_PROXY_IP="10.0.0.102"
 SERVER_IP="10.0.0.1"
@@ -13,7 +22,7 @@ fi
 BDP=$(expr $BANDWIDTH \* $RTT \* 1000 / 8) # in byte per second
 MTU_SIZE=1280 # in byte
 MAX_IN_FLIGHT=$(expr $BDP / $MTU_SIZE) # in packets, in both ways
-PATH_BUFFER=$(expr $MAX_IN_FLIGHT / 5) # in packets
+PATH_BUFFER=$(expr $MAX_IN_FLIGHT / 2) # in packets
 LIMIT=$(expr $MAX_IN_FLIGHT / 2 + $PATH_BUFFER) # in packets, one way
 if [ "$QLOG" == "1" ]; then
   QLOG='--qlog'
@@ -30,14 +39,6 @@ if [ "$RAW" == "1" ]; then
 else
   unset RAW
 fi
-
-function build_qperf() {
-  (cd .. ; go build qperf-go)
-  exit_code=$?
-  if [ $exit_code -ne 0 ]; then
-    exit $exit_code
-  fi
-}
 
 function setup_environment() {
   echo "Bandwidth: $BANDWIDTH Mbit/s"

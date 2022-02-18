@@ -1,8 +1,5 @@
 #!/bin/bash
-source ./common.sh
-
-# Build qperf
-build_qperf
+source "${BASH_SOURCE%/*}/common.sh"
 
 # Increase to recommended maximum buffer size (https://github.com/lucas-clemente/quic-go/wiki/UDP-Receive-Buffer-Size)
 sudo sysctl -w net.core.rmem_max=2500000 >/dev/null
@@ -23,15 +20,15 @@ sudo ip netns exec ns-server ip link set dev eth-server up
 sudo ip netns exec ns-client ip link set dev eth-client up
 
 # Start server
-sudo ip netns exec ns-server $QPERF_BIN server --migrate 3 --tls-cert ../server.crt --tls-key ../server.key &
+sudo ip netns exec ns-server sudo -u "$USER" "$QPERF_BIN" server --migrate 3 --tls-cert "$SERVER_CRT" --tls-key "$SERVER_KEY" &
 SERVER_PID=$!
 
 # Start client
-sudo ip netns exec ns-client $QPERF_BIN client --addr 10.0.0.1 --tls-cert ../server.crt &
+sudo ip netns exec ns-client sudo -u "$USER" "$QPERF_BIN" client --addr 10.0.0.1 --tls-cert "$SERVER_CRT" &
 CLIENT_PID=$!
 
 wait $CLIENT_PID
-sudo pkill -P $SERVER_PID
+pgrep -P $SERVER_PID | xargs -I {} pgrep -P {} | xargs -I {} kill {}
 wait $SERVER_PID
 
 # Delete namespaces
