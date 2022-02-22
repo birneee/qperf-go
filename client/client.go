@@ -16,17 +16,19 @@ import (
 )
 
 type client struct {
-	state    common.State
-	printRaw bool
-	logger   common.Logger
+	state          common.State
+	printRaw       bool
+	reportInterval time.Duration
+	logger         common.Logger
 }
 
 // Run client.
 // if proxyAddr is nil, no proxy is used.
-func Run(addr net.UDPAddr, timeToFirstByteOnly bool, printRaw bool, createQLog bool, migrateAfter time.Duration, proxyAddr *net.UDPAddr, probeTime time.Duration, tlsServerCertFile string, tlsProxyCertFile string, initialCongestionWindow uint32, initialReceiveWindow uint64, maxReceiveWindow uint64, use0RTT bool, useProxy0RTT, useXse bool, logPrefix string, qlogPrefix string) {
+func Run(addr net.UDPAddr, timeToFirstByteOnly bool, printRaw bool, createQLog bool, migrateAfter time.Duration, proxyAddr *net.UDPAddr, probeTime time.Duration, reportInterval time.Duration, tlsServerCertFile string, tlsProxyCertFile string, initialCongestionWindow uint32, initialReceiveWindow uint64, maxReceiveWindow uint64, use0RTT bool, useProxy0RTT, useXse bool, logPrefix string, qlogPrefix string) {
 	c := client{
-		state:    common.State{},
-		printRaw: printRaw,
+		state:          common.State{},
+		printRaw:       printRaw,
+		reportInterval: reportInterval,
 	}
 
 	c.logger = common.DefaultLogger.WithPrefix(logPrefix)
@@ -183,7 +185,7 @@ func Run(addr net.UDPAddr, timeToFirstByteOnly bool, printRaw bool, createQLog b
 			if time.Now().Sub(c.state.GetFirstByteTime()) > probeTime {
 				break
 			}
-			time.Sleep(1 * time.Second)
+			time.Sleep(reportInterval)
 			c.report(&c.state)
 		}
 	}
@@ -225,8 +227,14 @@ func (c *client) report(state *common.State) {
 			float64(receivedBytes)*8/delta.Seconds(),
 			receivedBytes,
 			receivedPackets)
-	} else {
+	} else if c.reportInterval == time.Second {
 		c.logger.Infof("second %.0f: %s, bytes received: %s, packets received: %d",
+			time.Now().Sub(state.GetFirstByteTime()).Seconds(),
+			humanize.SIWithDigits(float64(receivedBytes)*8/delta.Seconds(), 2, "bit/s"),
+			humanize.SI(float64(receivedBytes), "B"),
+			receivedPackets)
+	} else {
+		c.logger.Infof("second %.1f: %s, bytes received: %s, packets received: %d",
 			time.Now().Sub(state.GetFirstByteTime()).Seconds(),
 			humanize.SIWithDigits(float64(receivedBytes)*8/delta.Seconds(), 2, "bit/s"),
 			humanize.SI(float64(receivedBytes), "B"),

@@ -24,7 +24,7 @@ CLIENT_SIDE_PROXY_PID=$!
 sleep 2
 
 # Start client
-sudo ip netns exec ns-client sudo -u "$USER" "$QPERF_BIN" client --addr $SERVER_IP --proxy "$CLIENT_SIDE_PROXY_IP" -t 40 --tls-cert "$SERVER_CRT" --tls-proxy-cert "$PROXY_CRT" --log-prefix "client" $QLOG $XSE $RAW &
+sudo ip netns exec ns-client sudo -u "$USER" "$QPERF_BIN" client --addr $SERVER_IP --proxy "$CLIENT_SIDE_PROXY_IP" -t 40 -i $INTERVAL --tls-cert "$SERVER_CRT" --tls-proxy-cert "$PROXY_CRT" --log-prefix "client" $QLOG $XSE $RAW &
 CLIENT_PID=$!
 
 wait $CLIENT_PID

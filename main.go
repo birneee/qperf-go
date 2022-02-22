@@ -192,6 +192,12 @@ func main() {
 						Usage: "run for this many seconds",
 						Value: 10,
 					},
+					&cli.Float64Flag{
+						Name:    "report-interval",
+						Aliases: []string{"i"},
+						Usage:   "seconds between each statistics report",
+						Value:   1.0,
+					},
 					&cli.StringFlag{
 						Name:  "tls-cert",
 						Usage: "certificate file to trust the server",
@@ -273,6 +279,7 @@ func main() {
 						time.Duration(c.Uint64("migrate"))*time.Second,
 						proxyAddr,
 						time.Duration(c.Uint("t"))*time.Second,
+						time.Duration(c.Float64("report-interval")*float64(time.Second)),
 						c.String("tls-cert"),
 						c.String("tls-proxy-cert"),
 						uint32(c.Uint("initial-congestion-window")),
