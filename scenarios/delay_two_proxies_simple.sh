@@ -22,7 +22,7 @@ sudo ip netns exec ns-client-side-proxy sudo -u "$USER" "$QPERF_BIN" proxy --tls
 CLIENT_SIDE_PROXY_PID=$!
 
 # give server and proxies some time to setup e.g. to share 0-rtt information
-sleep 2
+sleep 1
 
 # Start client
 sudo ip netns exec ns-client sudo -u "$USER" "$QPERF_BIN" client --addr "$SERVER_IP" --proxy "$CLIENT_SIDE_PROXY_IP" -t 40 -i $INTERVAL --tls-cert "$SERVER_CRT" --tls-proxy-cert "$PROXY_CRT" --log-prefix "client" $QLOG $XSE $RAW &

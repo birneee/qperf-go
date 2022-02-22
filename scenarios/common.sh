@@ -102,6 +102,13 @@ function setup_environment() {
   sudo ip netns exec ns-client-side-gateway ip link set br-client up
   sudo ip netns exec ns-server-side-gateway ip link set br-server up
 
+  # Ping to resolve MAC through ARP
+  sudo ip netns exec ns-client sudo ping $SERVER_IP -c 1 >/dev/null
+  sudo ip netns exec ns-client sudo ping $CLIENT_SIDE_PROXY_IP -c 1 >/dev/null
+  sudo ip netns exec ns-client-side-proxy sudo ping $SERVER_IP -c 1 >/dev/null
+  sudo ip netns exec ns-client-side-proxy sudo ping $SERVER_SIDE_PROXY_IP -c 1 >/dev/null
+  sudo ip netns exec ns-server-side-proxy sudo ping $SERVER_IP -c 1 >/dev/null
+
   # Set RTT
   sudo ip netns exec ns-client-side-gateway tc qdisc replace dev eth-sat root netem limit $LIMIT delay $(expr $RTT / 2)ms rate ${BANDWIDTH}mbit
   sudo ip netns exec ns-server-side-gateway tc qdisc replace dev eth-sat root netem limit $LIMIT delay $(expr $RTT / 2)ms rate ${BANDWIDTH}mbit
@@ -109,13 +116,6 @@ function setup_environment() {
   # Set MTU
   sudo ip netns exec ns-client-side-gateway ip link set dev eth-sat mtu $MTU_SIZE
   sudo ip netns exec ns-server-side-gateway ip link set dev eth-sat mtu $MTU_SIZE
-
-  # Ping to resolve MAC through ARP
-  sudo ip netns exec ns-client sudo ping $SERVER_IP -c 1 >/dev/null
-  sudo ip netns exec ns-client sudo ping $CLIENT_SIDE_PROXY_IP -c 1 >/dev/null
-  sudo ip netns exec ns-client-side-proxy sudo ping $SERVER_IP -c 1 >/dev/null
-  sudo ip netns exec ns-client-side-proxy sudo ping $SERVER_SIDE_PROXY_IP -c 1 >/dev/null
-  sudo ip netns exec ns-server-side-proxy sudo ping $SERVER_IP -c 1 >/dev/null
 }
 
 function cleanup_environment() {
