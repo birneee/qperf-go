@@ -5,14 +5,14 @@ trap "pkill -P $$" SIGINT
 
 setup_environment
 
-RECEIVE_WINDOW=$(expr $BDP \* 3)
+MAX_RECEIVE_WINDOW=$(expr $BDP \* 3)
 
 # Start server
 sudo ip netns exec ns-server sudo -u "$USER" "$QPERF_BIN" server --tls-cert "$SERVER_CRT" --tls-key "$SERVER_KEY" --log-prefix "server" $QLOG &
 SERVER_PID=$!
 
 # Start client side proxy
-sudo ip netns exec ns-client-side-proxy sudo -u "$USER" "$QPERF_BIN" proxy --tls-cert "$PROXY_CRT" --tls-key "$PROXY_KEY" --server-facing-max-receive-window "$RECEIVE_WINDOW" --log-prefix "client_side_proxy" --qlog-prefix "client_side_proxy" $QLOG &
+sudo ip netns exec ns-client-side-proxy sudo -u "$USER" "$QPERF_BIN" proxy --tls-cert "$PROXY_CRT" --tls-key "$PROXY_KEY" --server-facing-max-receive-window "$MAX_RECEIVE_WINDOW" --log-prefix "client_side_proxy" --qlog-prefix "client_side_proxy" $QLOG &
 PROXY_PID=$!
 
 # Start client
