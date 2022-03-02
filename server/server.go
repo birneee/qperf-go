@@ -66,7 +66,8 @@ func Run(addr net.UDPAddr, createQLog bool, migrateAfter time.Duration, tlsServe
 		panic(err)
 	}
 
-	logger.Infof("starting server with pid %d, port %d, cc cubic, iw %d", os.Getpid(), addr.Port, conf.InitialCongestionWindow)
+	// print new reno as this is the only option in quic-go
+	logger.Infof("starting server with pid %d, port %d, cc new reno, iw %d", os.Getpid(), addr.Port, conf.InitialCongestionWindow)
 
 	// migrate
 	if migrateAfter.Nanoseconds() != 0 {
