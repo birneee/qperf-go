@@ -19,8 +19,8 @@ const defaultProxyTLSKeyFile = "proxy.key"
 
 func main() {
 	app := &cli.App{
-		Name:  "qperf",
-		Usage: "TODO",
+		Name:  "qperf-go",
+		Usage: "A performance measurement tool for QUIC similar to iperf",
 		Commands: []*cli.Command{
 			{
 				Name:  "proxy",
