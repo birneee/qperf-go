@@ -36,10 +36,10 @@ Following environment variables can be used to configure the scenarios.
 
 ### Examples
 ```bash
-RTT=250 BANDWIDTH=1000 QLOG=1 ./delay_two_proxies.sh 
+RTT=250 BANDWIDTH=1000 QLOG=1 ./distributed_pep_static_cc.sh 
 ```
 ```bash
-./delay.sh 
+TIME=5 INTERVAL=0.5 ./no_pep.sh 
 ```
 
 ## Migration Emulation

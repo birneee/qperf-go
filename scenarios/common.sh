@@ -22,6 +22,9 @@ fi
 if [ -z $INTERVAL ]; then
   INTERVAL=1 # in s
 fi
+if [ -z $TIME ]; then
+  TIME=40 # in s
+fi
 BDP=$(expr $BANDWIDTH \* $RTT \* 1000 / 8) # in byte per second
 MTU_SIZE=1280 # in byte
 MAX_IN_FLIGHT=$(expr $BDP / $MTU_SIZE) # in packets, in both ways
