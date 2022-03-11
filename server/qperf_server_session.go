@@ -7,6 +7,7 @@ import (
 	"net"
 	"qperf-go/common"
 	"sync"
+	"time"
 )
 
 type qperfServerSession struct {
@@ -16,6 +17,7 @@ type qperfServerSession struct {
 	currentRemoteAddr net.Addr
 	logger            common.Logger
 	closeOnce         sync.Once
+	state             *common.State
 }
 
 func (s *qperfServerSession) run() {
@@ -23,6 +25,8 @@ func (s *qperfServerSession) run() {
 	if s.session.ExtraStreamEncrypted() {
 		s.logger.Infof("use XSE-QUIC")
 	}
+
+	go s.reportLoop()
 
 	for {
 		quicStream, err := s.session.AcceptStream(context.Background())
@@ -38,6 +42,46 @@ func (s *qperfServerSession) run() {
 		}
 
 		go qperfStream.run()
+	}
+}
+
+func (s *qperfServerSession) reportLoop() {
+	lastTime := s.state.SentFirstByteTime()
+	lastLostPackets := uint64(0)
+	lastBytes := uint64(0)
+	lastPackets := uint64(0)
+	for {
+		select {
+		case <-s.session.Context().Done():
+			// session is closed
+			s.logger.Infof("total: bytes sent: %d B, packets sent: %d, packets lost: %d",
+				s.state.ReceivedBytes(),
+				s.state.ReceivedPackets(),
+				s.state.LostPackets(),
+			)
+			return
+		default:
+			// session is open
+		}
+		time.Sleep(time.Second)
+		time := time.Now()
+		packetLost := s.state.LostPackets()
+		bytes := s.state.SentBytes()
+		packets := s.state.SentPackets()
+		s.logger.Infof("second %f: %f bit/s, cwnd %d B, free cwnd %d B, free rwnd %d B, bytes sent: %d B, packets sent: %d, packets lost: %d",
+			time.Sub(s.state.FirstByteTime()).Seconds(),
+			float64(bytes-lastBytes)*8/time.Sub(lastTime).Seconds(),
+			s.state.CongestionWindow(),
+			s.state.FreeCongestionWindow(),
+			s.state.FreeReceiveWindow(),
+			bytes-lastBytes,
+			packets-lastPackets,
+			packetLost-lastLostPackets,
+		)
+		lastTime = time
+		lastLostPackets = packetLost
+		lastBytes = bytes
+		lastPackets = packets
 	}
 }
 

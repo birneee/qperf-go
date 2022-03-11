@@ -9,6 +9,7 @@ import (
 	"net"
 	"os"
 	"qperf-go/common"
+	"reflect"
 	"time"
 )
 
@@ -20,8 +21,10 @@ func Run(addr net.UDPAddr, createQLog bool, migrateAfter time.Duration, tlsServe
 
 	tracers := make([]logging.Tracer, 0)
 
+	tracers = append(tracers, &common.StateTracer{})
+
 	if createQLog {
-		tracers = append(tracers, common.NewQlogTrager(qlogPrefix, logger))
+		tracers = append(tracers, common.NewQlogTracer(qlogPrefix, logger))
 	}
 
 	if initialReceiveWindow > maxReceiveWindow {
@@ -89,11 +92,14 @@ func Run(addr net.UDPAddr, createQLog bool, migrateAfter time.Duration, tlsServe
 			panic(err)
 		}
 
+		state := common.GetSessionTracerByType(quicSession, reflect.TypeOf(&common.StateConnectionTracer{})).(*common.StateConnectionTracer).State
+
 		qperfSession := &qperfServerSession{
 			session:           quicSession,
 			sessionID:         nextSessionId,
 			currentRemoteAddr: quicSession.RemoteAddr(),
 			logger:            logger.WithPrefix(fmt.Sprintf("session %d", nextSessionId)),
+			state:             state,
 		}
 
 		go qperfSession.run()

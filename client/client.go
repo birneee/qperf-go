@@ -12,21 +12,25 @@ import (
 	"os"
 	"os/signal"
 	"qperf-go/common"
+	"reflect"
 	"time"
 )
 
 type client struct {
-	state          common.State
-	printRaw       bool
-	reportInterval time.Duration
-	logger         common.Logger
+	state                     *common.State
+	printRaw                  bool
+	reportInterval            time.Duration
+	logger                    common.Logger
+	lastReportTime            time.Time
+	lastReportReceivedBytes   uint64
+	lastReportReceivedPackets uint64
 }
 
 // Run client.
 // if proxyAddr is nil, no proxy is used.
 func Run(addr net.UDPAddr, timeToFirstByteOnly bool, printRaw bool, createQLog bool, migrateAfter time.Duration, proxyAddr *net.UDPAddr, probeTime time.Duration, reportInterval time.Duration, tlsServerCertFile string, tlsProxyCertFile string, initialCongestionWindow uint32, initialReceiveWindow uint64, maxReceiveWindow uint64, use0RTT bool, useProxy0RTT, useXse bool, logPrefix string, qlogPrefix string) {
 	c := client{
-		state:          common.State{},
+		state:          common.NewState(),
 		printRaw:       printRaw,
 		reportInterval: reportInterval,
 	}
@@ -35,12 +39,10 @@ func Run(addr net.UDPAddr, timeToFirstByteOnly bool, printRaw bool, createQLog b
 
 	tracers := make([]logging.Tracer, 0)
 
-	tracers = append(tracers, common.StateTracer{
-		State: &c.state,
-	})
+	tracers = append(tracers, &common.StateTracer{})
 
 	if createQLog {
-		tracers = append(tracers, common.NewQlogTrager(qlogPrefix, c.logger))
+		tracers = append(tracers, common.NewQlogTracer(qlogPrefix, c.logger))
 	}
 
 	tracers = append(tracers, common.NewMigrationTracer(func(addr net.Addr) {
@@ -108,14 +110,12 @@ func Run(addr net.UDPAddr, timeToFirstByteOnly bool, printRaw bool, createQLog b
 	}
 
 	if use0RTT {
-		err := common.PingToGatherSessionTicketAndToken(addr.String(), tlsConf, &conf)
+		err := common.PingToGatherSessionTicketAndToken(addr.String(), tlsConf, &quic.Config{TokenStore: tokenStore})
 		if err != nil {
 			panic(fmt.Errorf("failed to prepare 0-RTT: %w", err))
 		}
 		c.logger.Infof("stored session ticket and token")
 	}
-
-	c.state.SetStartTime()
 
 	var session quic.Session
 	if use0RTT {
@@ -132,8 +132,9 @@ func Run(addr net.UDPAddr, timeToFirstByteOnly bool, printRaw bool, createQLog b
 		}
 	}
 
-	c.state.SetEstablishmentTime()
-	c.reportEstablishmentTime(&c.state)
+	c.state = common.GetSessionTracerByType(session, reflect.TypeOf(&common.StateConnectionTracer{})).(*common.StateConnectionTracer).State
+
+	go c.reportEstablishmentTime()
 
 	if session.ExtraStreamEncrypted() {
 		c.logger.Infof("use XSE-QUIC")
@@ -171,22 +172,17 @@ func Run(addr net.UDPAddr, timeToFirstByteOnly bool, printRaw bool, createQLog b
 		panic(fmt.Errorf("failed to write to stream: %w", err))
 	}
 
-	err = c.receiveFirstByte(stream)
-	if err != nil {
-		panic(fmt.Errorf("failed to receive first byte: %w", err))
-	}
+	go c.receive(stream)
 
-	c.reportFirstByte(&c.state)
+	c.reportFirstByte()
 
 	if !timeToFirstByteOnly {
-		go c.receive(stream)
-
 		for {
-			if time.Now().Sub(c.state.GetFirstByteTime()) > probeTime {
+			if time.Now().Sub(c.state.FirstByteTime()) > probeTime {
 				break
 			}
 			time.Sleep(reportInterval)
-			c.report(&c.state)
+			c.report()
 		}
 	}
 
@@ -195,11 +191,11 @@ func Run(addr net.UDPAddr, timeToFirstByteOnly bool, printRaw bool, createQLog b
 		panic(fmt.Errorf("failed to close connection: %w", err))
 	}
 
-	c.reportTotal(&c.state)
+	c.reportTotal(c.state)
 }
 
-func (c *client) reportEstablishmentTime(state *common.State) {
-	establishmentTime := state.EstablishmentTime().Sub(state.StartTime())
+func (c *client) reportEstablishmentTime() {
+	establishmentTime := c.state.EstablishmentTime().Sub(c.state.StartTime())
 	if c.printRaw {
 		c.logger.Infof("connection establishment time: %f s",
 			establishmentTime.Seconds())
@@ -209,37 +205,45 @@ func (c *client) reportEstablishmentTime(state *common.State) {
 	}
 }
 
-func (c *client) reportFirstByte(state *common.State) {
+func (c *client) reportFirstByte() {
 	if c.printRaw {
 		c.logger.Infof("time to first byte: %f s",
-			state.GetFirstByteTime().Sub(state.StartTime()).Seconds())
+			c.state.FirstByteTime().Sub(c.state.StartTime()).Seconds())
 	} else {
 		c.logger.Infof("time to first byte: %s",
-			humanize.SIWithDigits(state.GetFirstByteTime().Sub(state.StartTime()).Seconds(), 2, "s"))
+			humanize.SIWithDigits(c.state.FirstByteTime().Sub(c.state.StartTime()).Seconds(), 2, "s"))
 	}
 }
 
-func (c *client) report(state *common.State) {
-	receivedBytes, receivedPackets, delta := state.GetAndResetReport()
+func (c *client) report() {
+	now := time.Now()
+	totalReceivedBytes := c.state.ReceivedBytes()
+	totalReceivedPackets := c.state.ReceivedPackets()
+	delta := now.Sub(common.MaxTime([]time.Time{c.lastReportTime, c.state.FirstByteTime()}))
+	receivedBytes := totalReceivedBytes - c.lastReportReceivedBytes
+	receivedPackets := totalReceivedPackets - c.lastReportReceivedPackets
 	if c.printRaw {
 		c.logger.Infof("second %f: %f bit/s, bytes received: %d B, packets received: %d",
-			time.Now().Sub(state.GetFirstByteTime()).Seconds(),
+			time.Now().Sub(c.state.FirstByteTime()).Seconds(),
 			float64(receivedBytes)*8/delta.Seconds(),
 			receivedBytes,
 			receivedPackets)
 	} else if c.reportInterval == time.Second {
 		c.logger.Infof("second %.0f: %s, bytes received: %s, packets received: %d",
-			time.Now().Sub(state.GetFirstByteTime()).Seconds(),
+			time.Now().Sub(c.state.FirstByteTime()).Seconds(),
 			humanize.SIWithDigits(float64(receivedBytes)*8/delta.Seconds(), 2, "bit/s"),
 			humanize.SI(float64(receivedBytes), "B"),
 			receivedPackets)
 	} else {
 		c.logger.Infof("second %.1f: %s, bytes received: %s, packets received: %d",
-			time.Now().Sub(state.GetFirstByteTime()).Seconds(),
+			time.Now().Sub(c.state.FirstByteTime()).Seconds(),
 			humanize.SIWithDigits(float64(receivedBytes)*8/delta.Seconds(), 2, "bit/s"),
 			humanize.SI(float64(receivedBytes), "B"),
 			receivedPackets)
 	}
+	c.lastReportTime = now
+	c.lastReportReceivedBytes = totalReceivedBytes
+	c.lastReportReceivedPackets = totalReceivedPackets
 }
 
 func (c *client) reportTotal(state *common.State) {
@@ -255,25 +259,10 @@ func (c *client) reportTotal(state *common.State) {
 	}
 }
 
-func (c *client) receiveFirstByte(stream quic.ReceiveStream) error {
-	buf := make([]byte, 1)
-	for {
-		received, err := stream.Read(buf)
-		if err != nil {
-			return err
-		}
-		if received != 0 {
-			c.state.AddReceivedBytes(uint64(received))
-			return nil
-		}
-	}
-}
-
 func (c *client) receive(reader io.Reader) {
 	buf := make([]byte, 65536)
 	for {
-		received, err := reader.Read(buf)
-		c.state.AddReceivedBytes(uint64(received))
+		_, err := reader.Read(buf)
 		if err != nil {
 			switch err := err.(type) {
 			case *quic.ApplicationError:
