@@ -55,7 +55,7 @@ func Run(addr net.UDPAddr, timeToFirstByteOnly bool, printRaw bool, createQLog b
 
 	if proxyAddr != nil {
 		proxyConf = &quic.ProxyConfig{
-			Addr: proxyAddr,
+			Addr: proxyAddr.String(),
 			TlsConf: &tls.Config{
 				RootCAs:            common.NewCertPoolWithCert(tlsProxyCertFile),
 				NextProtos:         []string{proxy.HQUICProxyALPN},
@@ -70,7 +70,7 @@ func Run(addr net.UDPAddr, timeToFirstByteOnly bool, printRaw bool, createQLog b
 	}
 
 	if useProxy0RTT {
-		err := common.PingToGatherSessionTicketAndToken(proxyConf.Addr.String(), proxyConf.TlsConf, proxyConf.Config)
+		err := common.PingToGatherSessionTicketAndToken(proxyConf.Addr, proxyConf.TlsConf, proxyConf.Config)
 		if err != nil {
 			panic(fmt.Errorf("failed to prepare 0-RTT to proxy: %w", err))
 		}
@@ -97,7 +97,7 @@ func Run(addr net.UDPAddr, timeToFirstByteOnly bool, printRaw bool, createQLog b
 		Tracer: logging.NewMultiplexedTracer(tracers...),
 		IgnoreReceived1RTTPacketsUntilFirstPathMigration: proxyAddr != nil, // TODO maybe not necessary for client
 		EnableActiveMigration:                            true,
-		Proxy:                                            proxyConf,
+		ProxyConf:                                        proxyConf,
 		InitialCongestionWindow:                          initialCongestionWindow,
 		InitialStreamReceiveWindow:                       initialReceiveWindow,
 		MaxStreamReceiveWindow:                           maxReceiveWindow,

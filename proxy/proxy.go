@@ -56,7 +56,7 @@ func Run(addr net.UDPAddr, tlsProxyCertFile string, tlsProxyKeyFile string, next
 		}
 
 		nextProxyConfig = &quic.ProxyConfig{
-			Addr:    nextProxyAddr,
+			Addr:    nextProxyAddr.String(),
 			TlsConf: tlsConf,
 			Config:  config,
 		}
@@ -69,7 +69,7 @@ func Run(addr net.UDPAddr, tlsProxyCertFile string, tlsProxyKeyFile string, next
 		serverFacingTracer = common.NewQlogTrager(fmt.Sprintf("%s_server_facing", qlogPrefix), logger)
 	}
 
-	clientSideProxyConf := &proxy.ProxyConnectionConfig{
+	clientSideProxyConf := &proxy.RestoreConfig{
 		OverwriteInitialReceiveWindow: clientSideInitialReceiveWindow,
 		InitialCongestionWindow:       clientSideInitialCongestionWindow,
 		MinCongestionWindow:           clientSideMinCongestionWindow,
@@ -77,11 +77,11 @@ func Run(addr net.UDPAddr, tlsProxyCertFile string, tlsProxyKeyFile string, next
 		Tracer:                        clientFacingTracer,
 	}
 
-	serverSideProxyConf := &proxy.ProxyConnectionConfig{
+	serverSideProxyConf := &proxy.RestoreConfig{
 		OverwriteInitialReceiveWindow: serverSideInitialReceiveWindow,
-		OverwriteMaxReceiveWindow:     serverSideMaxReceiveWindow,
+		MaxReceiveWindow:              serverSideMaxReceiveWindow,
 		Tracer:                        serverFacingTracer,
-		Proxy:                         nextProxyConfig,
+		ProxyConf:                     nextProxyConfig,
 	}
 
 	prox, err := proxy.RunProxy(addr, controlTlsConfig, controlConfig, clientSideProxyConf, serverSideProxyConf)
