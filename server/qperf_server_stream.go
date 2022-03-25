@@ -1,9 +1,9 @@
 package server
 
 import (
-	"bufio"
 	"fmt"
 	"github.com/lucas-clemente/quic-go"
+	"io/ioutil"
 	"qperf-go/common"
 )
 
@@ -16,7 +16,7 @@ type qperfServerStream struct {
 func (s *qperfServerStream) run() {
 	s.logger.Infof("open")
 
-	request, err := bufio.NewReader(s.stream).ReadString('\n')
+	request, err := ioutil.ReadAll(s.stream)
 	if err != nil {
 		s.session.close(err)
 		s.logger.Errorf("%s", err)

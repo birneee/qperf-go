@@ -170,6 +170,10 @@ func Run(addr net.UDPAddr, timeToFirstByteOnly bool, printRaw bool, createQLog b
 	if err != nil {
 		panic(fmt.Errorf("failed to write to stream: %w", err))
 	}
+	err = stream.Close()
+	if err != nil {
+		panic(fmt.Errorf("failed to close stream: %w", err))
+	}
 
 	err = c.receiveFirstByte(stream)
 	if err != nil {
