@@ -42,12 +42,17 @@ func Run(addr net.UDPAddr, createQLog bool, migrateAfter time.Duration, tlsServe
 		MaxStreamReceiveWindow:         maxReceiveWindow,
 		InitialConnectionReceiveWindow: uint64(float64(initialReceiveWindow) * quic.ConnectionFlowControlMultiplier),
 		MaxConnectionReceiveWindow:     uint64(float64(maxReceiveWindow) * quic.ConnectionFlowControlMultiplier),
-		ExtraStreamEncryption:          !noXse,
 		//DisablePathMTUDiscovery:                          true,
 		//TODO make option
 		//AcceptToken: func(_ net.Addr, _ *quic.Token) bool {
 		//	return true
 		//},
+	}
+
+	if noXse {
+		conf.ExtraStreamEncryption = quic.DisableExtraStreamEncryption
+	} else {
+		conf.ExtraStreamEncryption = quic.PreferExtraStreamEncryption
 	}
 
 	//TODO make CLI option
