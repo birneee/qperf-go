@@ -71,16 +71,16 @@ func Run(addr net.UDPAddr, timeToFirstByteOnly bool, printRaw bool, createQLog b
 
 	state.SetStartTime()
 
-	var session quic.Session
+	var connection quic.Connection
 	if use0RTT {
 		var err error
-		session, err = quic.DialAddrEarly(addr.String(), tlsConf, &conf)
+		connection, err = quic.DialAddrEarly(addr.String(), tlsConf, &conf)
 		if err != nil {
 			panic(err)
 		}
 	} else {
 		var err error
-		session, err = quic.DialAddr(addr.String(), tlsConf, &conf)
+		connection, err = quic.DialAddr(addr.String(), tlsConf, &conf)
 		if err != nil {
 			panic(err)
 		}
@@ -94,11 +94,11 @@ func Run(addr net.UDPAddr, timeToFirstByteOnly bool, printRaw bool, createQLog b
 	signal.Notify(c, os.Interrupt)
 	go func() {
 		<-c
-		_ = session.CloseWithError(quic.ApplicationErrorCode(quic.NoError), "client_closed")
+		_ = connection.CloseWithError(quic.ApplicationErrorCode(quic.NoError), "client_closed")
 		os.Exit(0)
 	}()
 
-	stream, err := session.OpenStream()
+	stream, err := connection.OpenStream()
 	if err != nil {
 		panic(err)
 	}
@@ -130,7 +130,7 @@ func Run(addr net.UDPAddr, timeToFirstByteOnly bool, printRaw bool, createQLog b
 
 	stream.CancelRead(quic.StreamErrorCode(quic.NoError))
 
-	err = session.CloseWithError(quic.ApplicationErrorCode(quic.NoError), "runtime_reached")
+	err = connection.CloseWithError(quic.ApplicationErrorCode(quic.NoError), "runtime_reached")
 	if err != nil {
 		panic(err)
 	}

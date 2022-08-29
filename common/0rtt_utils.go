@@ -18,13 +18,13 @@ func PingToGatherSessionTicketAndToken(addr string, tlsConf *tls.Config, config 
 	if config.TokenStore == nil {
 		panic("session cache is nil")
 	}
-	session, err := quic.DialAddr(addr, tlsConf, config)
+	connection, err := quic.DialAddr(addr, tlsConf, config)
 	if err != nil {
 		return err
 	}
 
-	sessionCacheKey := sessionCacheKey(session.RemoteAddr(), tlsConf)
-	tokenStoreKey := tokenStoreKey(session.RemoteAddr(), tlsConf)
+	sessionCacheKey := sessionCacheKey(connection.RemoteAddr(), tlsConf)
+	tokenStoreKey := tokenStoreKey(connection.RemoteAddr(), tlsConf)
 
 	// await session ticket
 	for {
@@ -43,7 +43,7 @@ func PingToGatherSessionTicketAndToken(addr string, tlsConf *tls.Config, config 
 			break
 		}
 	}
-	err = session.CloseWithError(quic.ApplicationErrorCode(0), "cancel")
+	err = connection.CloseWithError(quic.ApplicationErrorCode(0), "cancel")
 	if err != nil {
 		return err
 	}
