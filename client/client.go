@@ -22,7 +22,7 @@ type client struct {
 }
 
 // Run client.
-func Run(addr net.UDPAddr, timeToFirstByteOnly bool, printRaw bool, createQLog bool, migrateAfter time.Duration, probeTime time.Duration, reportInterval time.Duration, tlsServerCertFile string, tlsProxyCertFile string, initialCongestionWindow uint32, initialReceiveWindow uint64, maxReceiveWindow uint64, use0RTT bool, logPrefix string, qlogPrefix string) {
+func Run(addr net.UDPAddr, timeToFirstByteOnly bool, printRaw bool, createQLog bool, probeTime time.Duration, reportInterval time.Duration, tlsServerCertFile string, initialReceiveWindow uint64, maxReceiveWindow uint64, use0RTT bool, logPrefix string, qlogPrefix string) {
 	c := client{
 		state:          common.State{},
 		printRaw:       printRaw,
@@ -66,15 +66,12 @@ func Run(addr net.UDPAddr, timeToFirstByteOnly bool, printRaw bool, createQLog b
 	}
 
 	conf := quic.Config{
-		Tracer: logging.NewMultiplexedTracer(tracers...),
-		IgnoreReceived1RTTPacketsUntilFirstPathMigration: proxyAddr != nil, // TODO maybe not necessary for client
-		EnableActiveMigration:                            true,
-		InitialCongestionWindow:                          initialCongestionWindow,
-		InitialStreamReceiveWindow:                       initialReceiveWindow,
-		MaxStreamReceiveWindow:                           maxReceiveWindow,
-		InitialConnectionReceiveWindow:                   uint64(float64(initialReceiveWindow) * quic.ConnectionFlowControlMultiplier),
-		MaxConnectionReceiveWindow:                       uint64(float64(maxReceiveWindow) * quic.ConnectionFlowControlMultiplier),
-		TokenStore:                                       tokenStore,
+		Tracer:                         logging.NewMultiplexedTracer(tracers...),
+		InitialStreamReceiveWindow:     initialReceiveWindow,
+		MaxStreamReceiveWindow:         maxReceiveWindow,
+		InitialConnectionReceiveWindow: uint64(float64(initialReceiveWindow) * common.ConnectionFlowControlMultiplier),
+		MaxConnectionReceiveWindow:     uint64(float64(maxReceiveWindow) * common.ConnectionFlowControlMultiplier),
+		TokenStore:                     tokenStore,
 	}
 
 	if use0RTT {

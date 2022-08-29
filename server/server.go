@@ -9,11 +9,10 @@ import (
 	"net"
 	"os"
 	"qperf-go/common"
-	"time"
 )
 
 // Run server.
-func Run(addr net.UDPAddr, createQLog bool, tlsServerCertFile string, tlsServerKeyFile string, initialCongestionWindow uint32, minCongestionWindow uint32, maxCongestionWindow uint32, initialReceiveWindow uint64, maxReceiveWindow uint64, logPrefix string, qlogPrefix string) {
+func Run(addr net.UDPAddr, createQLog bool, tlsServerCertFile string, tlsServerKeyFile string, initialReceiveWindow uint64, maxReceiveWindow uint64, logPrefix string, qlogPrefix string) {
 
 	logger := common.DefaultLogger.WithPrefix(logPrefix)
 
@@ -27,19 +26,12 @@ func Run(addr net.UDPAddr, createQLog bool, tlsServerCertFile string, tlsServerK
 		maxReceiveWindow = initialReceiveWindow
 	}
 
-	if initialCongestionWindow < minCongestionWindow {
-		initialCongestionWindow = minCongestionWindow
-	}
-
 	conf := quic.Config{
 		Tracer:                         logging.NewMultiplexedTracer(tracers...),
-		InitialCongestionWindow:        initialCongestionWindow,
-		MinCongestionWindow:            minCongestionWindow,
-		MaxCongestionWindow:            maxCongestionWindow,
 		InitialStreamReceiveWindow:     initialReceiveWindow,
 		MaxStreamReceiveWindow:         maxReceiveWindow,
-		InitialConnectionReceiveWindow: uint64(float64(initialReceiveWindow) * quic.ConnectionFlowControlMultiplier),
-		MaxConnectionReceiveWindow:     uint64(float64(maxReceiveWindow) * quic.ConnectionFlowControlMultiplier),
+		InitialConnectionReceiveWindow: uint64(float64(initialReceiveWindow) * common.ConnectionFlowControlMultiplier),
+		MaxConnectionReceiveWindow:     uint64(float64(maxReceiveWindow) * common.ConnectionFlowControlMultiplier),
 		//DisablePathMTUDiscovery:                          true,
 		//TODO make option
 		//AcceptToken: func(_ net.Addr, _ *quic.Token) bool {
@@ -64,7 +56,7 @@ func Run(addr net.UDPAddr, createQLog bool, tlsServerCertFile string, tlsServerK
 	}
 
 	// print new reno as this is the only option in quic-go
-	logger.Infof("starting server with pid %d, port %d, cc new reno, iw %d", os.Getpid(), addr.Port, conf.InitialCongestionWindow)
+	logger.Infof("starting server with pid %d, port %d, cc new reno, iw %d", os.Getpid(), addr.Port, common.InitialCongestionWindow)
 
 	var nextConnectionId uint64 = 0
 

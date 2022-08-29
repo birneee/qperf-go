@@ -20,9 +20,6 @@ type qperfServerSession struct {
 
 func (s *qperfServerSession) run() {
 	s.logger.Infof("open")
-	if s.session.ExtraStreamEncrypted() {
-		s.logger.Infof("use XSE-QUIC")
-	}
 
 	for {
 		quicStream, err := s.connection.AcceptStream(context.Background())

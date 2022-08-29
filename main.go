@@ -53,11 +53,6 @@ func main() {
 						Usage: "certificate file to trust the server",
 						Value: "server.crt",
 					},
-					&cli.UintFlag{
-						Name:  "initial-congestion-window",
-						Usage: "the initial congestion window to use, in number of packets",
-						Value: quic.DefaultInitialCongestionWindow,
-					},
 					&cli.StringFlag{
 						Name:  "initial-receive-window",
 						Usage: "the initial stream-level receive window, in bytes (the connection-level window is 1.5 times higher)",
@@ -106,8 +101,6 @@ func main() {
 						time.Duration(c.Uint("t"))*time.Second,
 						time.Duration(c.Float64("report-interval")*float64(time.Second)),
 						c.String("tls-cert"),
-						c.String("tls-proxy-cert"),
-						uint32(c.Uint("initial-congestion-window")),
 						initialReceiveWindow,
 						maxReceiveWindow,
 						c.Bool("0rtt"),
@@ -144,21 +137,6 @@ func main() {
 						Name:  "tls-key",
 						Usage: "key file to use",
 						Value: "server.key",
-					},
-					&cli.UintFlag{
-						Name:  "initial-congestion-window",
-						Usage: "the initial congestion window to use, in number of packets",
-						Value: quic.DefaultInitialCongestionWindow,
-					},
-					&cli.UintFlag{
-						Name:  "min-congestion-window",
-						Usage: "the minimum congestion window to use, in number of packets",
-						Value: quic.DefaultMinCongestionWindow,
-					},
-					&cli.UintFlag{
-						Name:  "max-congestion-window",
-						Usage: "the maximum congestion window to use, in number of packets",
-						Value: quic.DefaultMaxCongestionWindow,
 					},
 					&cli.StringFlag{
 						Name:  "initial-receive-window",
@@ -197,9 +175,6 @@ func main() {
 						c.Bool("qlog"),
 						c.String("tls-cert"),
 						c.String("tls-key"),
-						uint32(c.Uint("initial-congestion-window")),
-						uint32(c.Uint("min-congestion-window")),
-						uint32(c.Uint("max-congestion-window")),
 						initialReceiveWindow,
 						maxReceiveWindow,
 						c.String("log-prefix"),
