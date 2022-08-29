@@ -13,8 +13,8 @@ import (
 
 func main() {
 	app := &cli.App{
-		Name:  "qperf",
-		Usage: "TODO",
+		Name:  "qperf-go",
+		Usage: "A performance measurement tool for QUIC similar to iperf",
 		Commands: []*cli.Command{
 			{
 				Name:  "client",
@@ -42,10 +42,21 @@ func main() {
 						Usage: "run for this many seconds",
 						Value: 10,
 					},
+					&cli.Float64Flag{
+						Name:    "report-interval",
+						Aliases: []string{"i"},
+						Usage:   "seconds between each statistics report",
+						Value:   1.0,
+					},
 					&cli.StringFlag{
 						Name:  "tls-cert",
 						Usage: "certificate file to trust the server",
 						Value: "server.crt",
+					},
+					&cli.UintFlag{
+						Name:  "initial-congestion-window",
+						Usage: "the initial congestion window to use, in number of packets",
+						Value: quic.DefaultInitialCongestionWindow,
 					},
 					&cli.StringFlag{
 						Name:  "initial-receive-window",
@@ -61,6 +72,16 @@ func main() {
 						Name:  "0rtt",
 						Usage: "gather 0-RTT information to the server beforehand",
 						Value: false,
+					},
+					&cli.StringFlag{
+						Name:  "qlog-prefix",
+						Usage: "the prefix of the qlog file name",
+						Value: "client",
+					},
+					&cli.StringFlag{
+						Name:  "log-prefix",
+						Usage: "the prefix of the command line output",
+						Value: "",
 					},
 				},
 				Action: func(c *cli.Context) error {
@@ -83,10 +104,15 @@ func main() {
 						c.Bool("print-raw"),
 						c.Bool("qlog"),
 						time.Duration(c.Uint("t"))*time.Second,
+						time.Duration(c.Float64("report-interval")*float64(time.Second)),
 						c.String("tls-cert"),
+						c.String("tls-proxy-cert"),
+						uint32(c.Uint("initial-congestion-window")),
 						initialReceiveWindow,
 						maxReceiveWindow,
 						c.Bool("0rtt"),
+						c.String("log-prefix"),
+						c.String("qlog-prefix"),
 					)
 					return nil
 				},
@@ -119,6 +145,21 @@ func main() {
 						Usage: "key file to use",
 						Value: "server.key",
 					},
+					&cli.UintFlag{
+						Name:  "initial-congestion-window",
+						Usage: "the initial congestion window to use, in number of packets",
+						Value: quic.DefaultInitialCongestionWindow,
+					},
+					&cli.UintFlag{
+						Name:  "min-congestion-window",
+						Usage: "the minimum congestion window to use, in number of packets",
+						Value: quic.DefaultMinCongestionWindow,
+					},
+					&cli.UintFlag{
+						Name:  "max-congestion-window",
+						Usage: "the maximum congestion window to use, in number of packets",
+						Value: quic.DefaultMaxCongestionWindow,
+					},
 					&cli.StringFlag{
 						Name:  "initial-receive-window",
 						Usage: "the initial stream-level receive window, in bytes (the connection-level window is 1.5 times higher)",
@@ -128,6 +169,16 @@ func main() {
 						Name:  "max-receive-window",
 						Usage: "the maximum stream-level receive window, in bytes (the connection-level window is 1.5 times higher)",
 						Value: "6MiB",
+					},
+					&cli.StringFlag{
+						Name:  "qlog-prefix",
+						Usage: "the prefix of the qlog file name",
+						Value: "server",
+					},
+					&cli.StringFlag{
+						Name:  "log-prefix",
+						Usage: "the prefix of the command line output",
+						Value: "",
 					},
 				},
 				Action: func(c *cli.Context) error {
@@ -146,8 +197,13 @@ func main() {
 						c.Bool("qlog"),
 						c.String("tls-cert"),
 						c.String("tls-key"),
+						uint32(c.Uint("initial-congestion-window")),
+						uint32(c.Uint("min-congestion-window")),
+						uint32(c.Uint("max-congestion-window")),
 						initialReceiveWindow,
 						maxReceiveWindow,
+						c.String("log-prefix"),
+						c.String("qlog-prefix"),
 					)
 					return nil
 				},

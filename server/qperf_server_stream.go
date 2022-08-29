@@ -1,8 +1,9 @@
 package server
 
 import (
-	"bufio"
+	"fmt"
 	"github.com/lucas-clemente/quic-go"
+	"io/ioutil"
 	"qperf-go/common"
 )
 
@@ -15,13 +16,14 @@ type qperfServerStream struct {
 func (s *qperfServerStream) run() {
 	s.logger.Infof("open")
 
-	request, err := bufio.NewReader(s.stream).ReadString('\n')
+	request, err := ioutil.ReadAll(s.stream)
 	if err != nil {
+		s.session.close(err)
 		s.logger.Errorf("%s", err)
 		return
 	}
 	if string(request) != common.QPerfStartSendingRequest {
-		s.logger.Errorf("%s", "unknown qperf message")
+		s.session.close(fmt.Errorf("unknown qperf message"))
 		return
 	}
 
@@ -29,7 +31,7 @@ func (s *qperfServerStream) run() {
 	for {
 		_, err := s.stream.Write(buf)
 		if err != nil {
-			s.logger.Errorf("%s", err)
+			s.session.close(err)
 			return
 		}
 		s.session.checkIfRemoteAddrChanged()

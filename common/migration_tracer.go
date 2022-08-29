@@ -142,3 +142,7 @@ func (a connectionTracer) Debug(name, msg string) {
 func (a connectionTracer) UpdatedPath(newRemote net.Addr) {
 	a.onMigration(newRemote)
 }
+
+func (a connectionTracer) XseReceiveRecord(_ logging.StreamID, _ int, _ int) {
+	// ignore
+}

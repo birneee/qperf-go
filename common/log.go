@@ -4,7 +4,6 @@ package common
 
 import (
 	"fmt"
-	"log"
 	"os"
 	"strings"
 	"time"
@@ -23,6 +22,7 @@ const (
 	LogLevelDebug
 )
 
+const DefaultLogLevel = LogLevelInfo
 const LogEnv = "QPERF_LOG_LEVEL"
 
 // A Logger logs.
@@ -30,8 +30,6 @@ type Logger interface {
 	SetLogLevel(LogLevel)
 	SetLogTimeFormat(format string)
 	WithPrefix(prefix string) Logger
-	Clone() Logger
-	Debug() bool
 
 	Errorf(format string, args ...interface{})
 	Infof(format string, args ...interface{})
@@ -58,7 +56,6 @@ func (l *defaultLogger) SetLogLevel(level LogLevel) {
 // SetLogTimeFormat sets the format of the timestamp
 // an empty string disables the logging of timestamps
 func (l *defaultLogger) SetLogTimeFormat(format string) {
-	log.SetFlags(0) // disable timestamp logging done by the log package
 	l.timeFormat = format
 }
 
@@ -92,33 +89,20 @@ func (l *defaultLogger) logMessage(format string, args ...interface{}) {
 	if len(l.prefix) > 0 {
 		pre += l.prefix + " "
 	}
-	log.Printf(pre+format, args...)
+	fmt.Printf(pre+format+"\n", args...)
 }
 
 func (l *defaultLogger) WithPrefix(prefix string) Logger {
-	if len(l.prefix) > 0 {
-		prefix = l.prefix + "[" + prefix + "]"
+	if len(prefix) == 0 {
+		prefix = l.prefix
 	} else {
-		prefix = "[" + prefix + "]"
+		prefix = l.prefix + "[" + prefix + "]"
 	}
 	return &defaultLogger{
 		logLevel:   l.logLevel,
 		timeFormat: l.timeFormat,
 		prefix:     prefix,
 	}
-}
-
-func (l *defaultLogger) Clone() Logger {
-	return &defaultLogger{
-		logLevel:   l.logLevel,
-		timeFormat: l.timeFormat,
-		prefix:     l.prefix,
-	}
-}
-
-// Debug returns true if the log level is LogLevelDebug
-func (l *defaultLogger) Debug() bool {
-	return l.logLevel == LogLevelDebug
 }
 
 func init() {
@@ -129,7 +113,7 @@ func init() {
 func readLoggingEnv() LogLevel {
 	switch strings.ToLower(os.Getenv(LogEnv)) {
 	case "":
-		return LogLevelNothing
+		return DefaultLogLevel
 	case "debug":
 		return LogLevelDebug
 	case "info":
@@ -138,6 +122,6 @@ func readLoggingEnv() LogLevel {
 		return LogLevelError
 	default:
 		fmt.Fprintln(os.Stderr, "invalid qperf log level")
-		return LogLevelError
+		return DefaultLogLevel
 	}
 }

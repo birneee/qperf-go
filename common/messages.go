@@ -1,3 +1,3 @@
 package common
 
-const QPerfStartSendingRequest = "qperf start sending\n"
+const QPerfStartSendingRequest = "qperf start sending"

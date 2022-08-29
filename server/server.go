@@ -9,33 +9,42 @@ import (
 	"net"
 	"os"
 	"qperf-go/common"
+	"time"
 )
 
 // Run server.
-func Run(addr net.UDPAddr, createQLog bool, tlsServerCertFile string, tlsServerKeyFile string, initialReceiveWindow uint64, maxReceiveWindow uint64) {
+func Run(addr net.UDPAddr, createQLog bool, tlsServerCertFile string, tlsServerKeyFile string, initialCongestionWindow uint32, minCongestionWindow uint32, maxCongestionWindow uint32, initialReceiveWindow uint64, maxReceiveWindow uint64, logPrefix string, qlogPrefix string) {
 
-	state := common.State{}
+	logger := common.DefaultLogger.WithPrefix(logPrefix)
 
 	tracers := make([]logging.Tracer, 0)
 
-	tracers = append(tracers, common.StateTracer{
-		State: &state,
-	})
-
 	if createQLog {
-		tracers = append(tracers, common.NewQlogTrager("server"))
+		tracers = append(tracers, common.NewQlogTrager(qlogPrefix, logger))
 	}
 
 	if initialReceiveWindow > maxReceiveWindow {
 		maxReceiveWindow = initialReceiveWindow
 	}
 
+	if initialCongestionWindow < minCongestionWindow {
+		initialCongestionWindow = minCongestionWindow
+	}
+
 	conf := quic.Config{
 		Tracer:                         logging.NewMultiplexedTracer(tracers...),
+		InitialCongestionWindow:        initialCongestionWindow,
+		MinCongestionWindow:            minCongestionWindow,
+		MaxCongestionWindow:            maxCongestionWindow,
 		InitialStreamReceiveWindow:     initialReceiveWindow,
 		MaxStreamReceiveWindow:         maxReceiveWindow,
-		InitialConnectionReceiveWindow: uint64(float64(initialReceiveWindow) * common.ConnectionFlowControlMultiplier),
-		MaxConnectionReceiveWindow:     uint64(float64(maxReceiveWindow) * common.ConnectionFlowControlMultiplier),
+		InitialConnectionReceiveWindow: uint64(float64(initialReceiveWindow) * quic.ConnectionFlowControlMultiplier),
+		MaxConnectionReceiveWindow:     uint64(float64(maxReceiveWindow) * quic.ConnectionFlowControlMultiplier),
+		//DisablePathMTUDiscovery:                          true,
+		//TODO make option
+		//AcceptToken: func(_ net.Addr, _ *quic.Token) bool {
+		//	return true
+		//},
 	}
 
 	//TODO make CLI option
@@ -54,12 +63,8 @@ func Run(addr net.UDPAddr, createQLog bool, tlsServerCertFile string, tlsServerK
 		panic(err)
 	}
 
-	logger := common.DefaultLogger.Clone()
-	if len(os.Getenv(common.LogEnv)) == 0 {
-		logger.SetLogLevel(common.LogLevelInfo) // log level info is the default
-	}
-
-	logger.Infof("starting server with pid %d, port %d, cc cubic, iw %d", os.Getpid(), addr.Port, common.InitialCongestionWindow)
+	// print new reno as this is the only option in quic-go
+	logger.Infof("starting server with pid %d, port %d, cc new reno, iw %d", os.Getpid(), addr.Port, conf.InitialCongestionWindow)
 
 	var nextConnectionId uint64 = 0
 

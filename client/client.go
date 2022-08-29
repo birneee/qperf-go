@@ -14,22 +14,35 @@ import (
 	"time"
 )
 
+type client struct {
+	state          common.State
+	printRaw       bool
+	reportInterval time.Duration
+	logger         common.Logger
+}
+
 // Run client.
-func Run(addr net.UDPAddr, timeToFirstByteOnly bool, printRaw bool, createQLog bool, probeTime time.Duration, tlsServerCertFile string, initialReceiveWindow uint64, maxReceiveWindow uint64, use0RTT bool) {
-	state := common.State{}
+func Run(addr net.UDPAddr, timeToFirstByteOnly bool, printRaw bool, createQLog bool, migrateAfter time.Duration, probeTime time.Duration, reportInterval time.Duration, tlsServerCertFile string, tlsProxyCertFile string, initialCongestionWindow uint32, initialReceiveWindow uint64, maxReceiveWindow uint64, use0RTT bool, logPrefix string, qlogPrefix string) {
+	c := client{
+		state:          common.State{},
+		printRaw:       printRaw,
+		reportInterval: reportInterval,
+	}
+
+	c.logger = common.DefaultLogger.WithPrefix(logPrefix)
 
 	tracers := make([]logging.Tracer, 0)
 
 	tracers = append(tracers, common.StateTracer{
-		State: &state,
+		State: &c.state,
 	})
 
 	if createQLog {
-		tracers = append(tracers, common.NewQlogTrager("client"))
+		tracers = append(tracers, common.NewQlogTrager(qlogPrefix, c.logger))
 	}
 
 	tracers = append(tracers, common.NewMigrationTracer(func(addr net.Addr) {
-		fmt.Printf("migrated to %s\n", addr)
+		c.logger.Infof("migrated to %s", addr)
 	}))
 
 	if initialReceiveWindow > maxReceiveWindow {
@@ -38,12 +51,12 @@ func Run(addr net.UDPAddr, timeToFirstByteOnly bool, printRaw bool, createQLog b
 
 	var clientSessionCache tls.ClientSessionCache
 	if use0RTT {
-		clientSessionCache = tls.NewLRUClientSessionCache(10)
+		clientSessionCache = tls.NewLRUClientSessionCache(1)
 	}
 
 	var tokenStore quic.TokenStore
 	if use0RTT {
-		tokenStore = quic.NewLRUTokenStore(10, 10)
+		tokenStore = quic.NewLRUTokenStore(1, 1)
 	}
 
 	tlsConf := &tls.Config{
@@ -53,122 +66,133 @@ func Run(addr net.UDPAddr, timeToFirstByteOnly bool, printRaw bool, createQLog b
 	}
 
 	conf := quic.Config{
-		Tracer:                         logging.NewMultiplexedTracer(tracers...),
-		InitialStreamReceiveWindow:     initialReceiveWindow,
-		MaxStreamReceiveWindow:         maxReceiveWindow,
-		InitialConnectionReceiveWindow: uint64(float64(initialReceiveWindow) * common.ConnectionFlowControlMultiplier),
-		MaxConnectionReceiveWindow:     uint64(float64(maxReceiveWindow) * common.ConnectionFlowControlMultiplier),
-		TokenStore:                     tokenStore,
+		Tracer: logging.NewMultiplexedTracer(tracers...),
+		IgnoreReceived1RTTPacketsUntilFirstPathMigration: proxyAddr != nil, // TODO maybe not necessary for client
+		EnableActiveMigration:                            true,
+		InitialCongestionWindow:                          initialCongestionWindow,
+		InitialStreamReceiveWindow:                       initialReceiveWindow,
+		MaxStreamReceiveWindow:                           maxReceiveWindow,
+		InitialConnectionReceiveWindow:                   uint64(float64(initialReceiveWindow) * quic.ConnectionFlowControlMultiplier),
+		MaxConnectionReceiveWindow:                       uint64(float64(maxReceiveWindow) * quic.ConnectionFlowControlMultiplier),
+		TokenStore:                                       tokenStore,
 	}
 
 	if use0RTT {
 		err := common.PingToGatherSessionTicketAndToken(addr.String(), tlsConf, &conf)
 		if err != nil {
-			panic(err)
+			panic(fmt.Errorf("failed to prepare 0-RTT: %w", err))
 		}
-		fmt.Printf("stored session ticket and token\n")
+		c.logger.Infof("stored session ticket and token")
 	}
 
-	state.SetStartTime()
+	c.state.SetStartTime()
 
 	var connection quic.Connection
 	if use0RTT {
 		var err error
 		connection, err = quic.DialAddrEarly(addr.String(), tlsConf, &conf)
 		if err != nil {
-			panic(err)
+			panic(fmt.Errorf("failed to establish connection: %w", err))
 		}
 	} else {
 		var err error
 		connection, err = quic.DialAddr(addr.String(), tlsConf, &conf)
 		if err != nil {
-			panic(err)
+			panic(fmt.Errorf("failed to establish connection: %w", err))
 		}
 	}
 
-	state.SetEstablishmentTime()
-	reportEstablishmentTime(&state, printRaw)
+	c.state.SetEstablishmentTime()
+	c.reportEstablishmentTime(&c.state)
 
 	// close gracefully on interrupt (CTRL+C)
-	c := make(chan os.Signal, 1)
-	signal.Notify(c, os.Interrupt)
+	intChan := make(chan os.Signal, 1)
+	signal.Notify(intChan, os.Interrupt)
 	go func() {
-		<-c
+		<-intChan
 		_ = connection.CloseWithError(quic.ApplicationErrorCode(quic.NoError), "client_closed")
 		os.Exit(0)
 	}()
 
 	stream, err := connection.OpenStream()
 	if err != nil {
-		panic(err)
+		panic(fmt.Errorf("failed to open stream: %w", err))
 	}
 
 	// send some date to open stream
 	_, err = stream.Write([]byte(common.QPerfStartSendingRequest))
 	if err != nil {
-		panic(err)
+		panic(fmt.Errorf("failed to write to stream: %w", err))
+	}
+	err = stream.Close()
+	if err != nil {
+		panic(fmt.Errorf("failed to close stream: %w", err))
 	}
 
-	err = receiveFirstByte(stream, &state)
+	err = c.receiveFirstByte(stream)
 	if err != nil {
 		panic(fmt.Errorf("failed to receive first byte: %w", err))
 	}
 
-	reportFirstByte(&state, printRaw)
+	c.reportFirstByte(&c.state)
 
 	if !timeToFirstByteOnly {
-		go receive(stream, &state)
+		go c.receive(stream)
 
 		for {
-			if time.Now().Sub(state.GetFirstByteTime()) > probeTime {
+			if time.Now().Sub(c.state.GetFirstByteTime()) > probeTime {
 				break
 			}
-			time.Sleep(1 * time.Second)
-			report(&state, printRaw)
+			time.Sleep(reportInterval)
+			c.report(&c.state)
 		}
 	}
 
-	stream.CancelRead(quic.StreamErrorCode(quic.NoError))
-
-	err = connection.CloseWithError(quic.ApplicationErrorCode(quic.NoError), "runtime_reached")
+	err = connection.CloseWithError(common.RuntimeReachedErrorCode, "runtime_reached")
 	if err != nil {
-		panic(err)
+		panic(fmt.Errorf("failed to close connection: %w", err))
 	}
 
-	reportTotal(&state, printRaw)
+	c.reportTotal(&c.state)
 }
 
-func reportEstablishmentTime(state *common.State, printRaw bool) {
+func (c *client) reportEstablishmentTime(state *common.State) {
 	establishmentTime := state.EstablishmentTime().Sub(state.StartTime())
-	if printRaw {
-		fmt.Printf("connection establishment time: %f s\n",
+	if c.printRaw {
+		c.logger.Infof("connection establishment time: %f s",
 			establishmentTime.Seconds())
 	} else {
-		fmt.Printf("connection establishment time: %s\n",
+		c.logger.Infof("connection establishment time: %s",
 			humanize.SIWithDigits(establishmentTime.Seconds(), 2, "s"))
 	}
 }
 
-func reportFirstByte(state *common.State, printRaw bool) {
-	if printRaw {
-		fmt.Printf("time to first byte: %f s\n",
+func (c *client) reportFirstByte(state *common.State) {
+	if c.printRaw {
+		c.logger.Infof("time to first byte: %f s",
 			state.GetFirstByteTime().Sub(state.StartTime()).Seconds())
 	} else {
-		fmt.Printf("time to first byte: %s\n",
+		c.logger.Infof("time to first byte: %s",
 			humanize.SIWithDigits(state.GetFirstByteTime().Sub(state.StartTime()).Seconds(), 2, "s"))
 	}
 }
 
-func report(state *common.State, printRaw bool) {
+func (c *client) report(state *common.State) {
 	receivedBytes, receivedPackets, delta := state.GetAndResetReport()
-	if printRaw {
-		fmt.Printf("second %f: %f bit/s, bytes received: %d B, packets received: %d\n",
+	if c.printRaw {
+		c.logger.Infof("second %f: %f bit/s, bytes received: %d B, packets received: %d",
 			time.Now().Sub(state.GetFirstByteTime()).Seconds(),
 			float64(receivedBytes)*8/delta.Seconds(),
 			receivedBytes,
 			receivedPackets)
+	} else if c.reportInterval == time.Second {
+		c.logger.Infof("second %.0f: %s, bytes received: %s, packets received: %d",
+			time.Now().Sub(state.GetFirstByteTime()).Seconds(),
+			humanize.SIWithDigits(float64(receivedBytes)*8/delta.Seconds(), 2, "bit/s"),
+			humanize.SI(float64(receivedBytes), "B"),
+			receivedPackets)
 	} else {
-		fmt.Printf("second %.2f: %s, bytes received: %s, packets received: %d\n",
+		c.logger.Infof("second %.1f: %s, bytes received: %s, packets received: %d",
 			time.Now().Sub(state.GetFirstByteTime()).Seconds(),
 			humanize.SIWithDigits(float64(receivedBytes)*8/delta.Seconds(), 2, "bit/s"),
 			humanize.SI(float64(receivedBytes), "B"),
@@ -176,20 +200,20 @@ func report(state *common.State, printRaw bool) {
 	}
 }
 
-func reportTotal(state *common.State, printRaw bool) {
+func (c *client) reportTotal(state *common.State) {
 	receivedBytes, receivedPackets := state.Total()
-	if printRaw {
-		fmt.Printf("total: bytes received: %d B, packets received: %d\n",
+	if c.printRaw {
+		c.logger.Infof("total: bytes received: %d B, packets received: %d",
 			receivedBytes,
 			receivedPackets)
 	} else {
-		fmt.Printf("total: bytes received: %s, packets received: %d\n",
+		c.logger.Infof("total: bytes received: %s, packets received: %d",
 			humanize.SI(float64(receivedBytes), "B"),
 			receivedPackets)
 	}
 }
 
-func receiveFirstByte(stream quic.ReceiveStream, state *common.State) error {
+func (c *client) receiveFirstByte(stream quic.ReceiveStream) error {
 	buf := make([]byte, 1)
 	for {
 		received, err := stream.Read(buf)
@@ -197,19 +221,26 @@ func receiveFirstByte(stream quic.ReceiveStream, state *common.State) error {
 			return err
 		}
 		if received != 0 {
-			state.AddReceivedBytes(uint64(received))
+			c.state.AddReceivedBytes(uint64(received))
 			return nil
 		}
 	}
 }
 
-func receive(reader io.Reader, state *common.State) {
+func (c *client) receive(reader io.Reader) {
 	buf := make([]byte, 65536)
 	for {
 		received, err := reader.Read(buf)
-		state.AddReceivedBytes(uint64(received))
+		c.state.AddReceivedBytes(uint64(received))
 		if err != nil {
-			//TODO differentiate errors from planed close
+			switch err := err.(type) {
+			case *quic.ApplicationError:
+				if err.ErrorCode == common.RuntimeReachedErrorCode {
+					return
+				}
+			default:
+				panic(err)
+			}
 		}
 	}
 }
