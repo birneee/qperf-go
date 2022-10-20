@@ -3,7 +3,7 @@ package server
 import (
 	"fmt"
 	"github.com/lucas-clemente/quic-go"
-	"io/ioutil"
+	"io"
 	"qperf-go/common"
 )
 
@@ -16,7 +16,7 @@ type qperfServerStream struct {
 func (s *qperfServerStream) run() {
 	s.logger.Infof("open")
 
-	request, err := ioutil.ReadAll(s.stream)
+	request, err := io.ReadAll(s.stream)
 	if err != nil {
 		s.session.close(err)
 		s.logger.Errorf("%s", err)

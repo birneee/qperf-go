@@ -1,6 +1,6 @@
 module qperf-go
 
-go 1.17
+go 1.19
 
 require (
 	github.com/dustin/go-humanize v1.0.0
@@ -9,14 +9,11 @@ require (
 )
 
 require (
-	github.com/cheekybits/genny v1.0.0 // indirect
 	github.com/cpuguy83/go-md2man/v2 v2.0.0-20190314233015-f79a8a8ca69d // indirect
 	github.com/francoispqt/gojay v1.2.13 // indirect
 	github.com/fsnotify/fsnotify v1.4.9 // indirect
 	github.com/go-task/slim-sprig v0.0.0-20210107165309-348f09dbbbc0 // indirect
 	github.com/golang/mock v1.6.0 // indirect
-	github.com/marten-seemann/qtls-go1-16 v0.1.4 // indirect
-	github.com/marten-seemann/qtls-go1-17 v0.1.0 // indirect
 	github.com/marten-seemann/qtls-go1-18 v0.1.2 // indirect
 	github.com/marten-seemann/qtls-go1-19 v0.1.0 // indirect
 	github.com/nxadm/tail v1.4.8 // indirect
