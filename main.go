@@ -13,7 +13,6 @@ import (
 	"time"
 )
 
-const defaultProxyControlPort = 18081
 const defaultProxyTLSCertificateFile = "proxy.crt"
 const defaultProxyTLSKeyFile = "proxy.key"
 
@@ -34,7 +33,7 @@ func main() {
 					&cli.UintFlag{
 						Name:  "port",
 						Usage: "port of the proxy to listen on, for control connections",
-						Value: defaultProxyControlPort,
+						Value: common.DefaultProxyControlPort,
 					},
 					&cli.StringFlag{
 						Name:  "tls-cert",

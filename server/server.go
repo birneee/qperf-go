@@ -86,22 +86,22 @@ func Run(addr net.UDPAddr, createQLog bool, migrateAfter time.Duration, tlsServe
 		}()
 	}
 
-	var nextSessionId uint64 = 0
+	var nextConnectionId uint64 = 0
 
 	for {
-		quicSession, err := listener.Accept(context.Background())
+		quicConnection, err := listener.Accept(context.Background())
 		if err != nil {
 			panic(err)
 		}
 
 		qperfSession := &qperfServerSession{
-			session:           quicSession,
-			sessionID:         nextSessionId,
-			currentRemoteAddr: quicSession.RemoteAddr(),
-			logger:            logger.WithPrefix(fmt.Sprintf("session %d", nextSessionId)),
+			connection:        quicConnection,
+			connectionID:      nextConnectionId,
+			currentRemoteAddr: quicConnection.RemoteAddr(),
+			logger:            logger.WithPrefix(fmt.Sprintf("connection %d", nextConnectionId)),
 		}
 
 		go qperfSession.run()
-		nextSessionId += 1
+		nextConnectionId += 1
 	}
 }

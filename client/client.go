@@ -122,16 +122,16 @@ func Run(addr net.UDPAddr, timeToFirstByteOnly bool, printRaw bool, createQLog b
 
 	c.state.SetStartTime()
 
-	var session quic.Session
+	var connection quic.Connection
 	if use0RTT {
 		var err error
-		session, err = quic.DialAddrEarly(addr.String(), tlsConf, &conf)
+		connection, err = quic.DialAddrEarly(addr.String(), tlsConf, &conf)
 		if err != nil {
 			panic(fmt.Errorf("failed to establish connection: %w", err))
 		}
 	} else {
 		var err error
-		session, err = quic.DialAddr(addr.String(), tlsConf, &conf)
+		connection, err = quic.DialAddr(addr.String(), tlsConf, &conf)
 		if err != nil {
 			panic(fmt.Errorf("failed to establish connection: %w", err))
 		}
@@ -140,7 +140,7 @@ func Run(addr net.UDPAddr, timeToFirstByteOnly bool, printRaw bool, createQLog b
 	c.state.SetEstablishmentTime()
 	c.reportEstablishmentTime(&c.state)
 
-	if session.ExtraStreamEncrypted() {
+	if connection.ExtraStreamEncrypted() {
 		c.logger.Infof("use XSE-QUIC")
 	}
 
@@ -148,7 +148,7 @@ func Run(addr net.UDPAddr, timeToFirstByteOnly bool, printRaw bool, createQLog b
 	if migrateAfter.Nanoseconds() != 0 {
 		go func() {
 			time.Sleep(migrateAfter)
-			addr, err := session.MigrateUDPSocket()
+			addr, err := connection.MigrateUDPSocket()
 			if err != nil {
 				panic(fmt.Errorf("failed to migrate UDP socket: %w", err))
 			}
@@ -161,11 +161,11 @@ func Run(addr net.UDPAddr, timeToFirstByteOnly bool, printRaw bool, createQLog b
 	signal.Notify(intChan, os.Interrupt)
 	go func() {
 		<-intChan
-		_ = session.CloseWithError(quic.ApplicationErrorCode(quic.NoError), "client_closed")
+		_ = connection.CloseWithError(quic.ApplicationErrorCode(quic.NoError), "client_closed")
 		os.Exit(0)
 	}()
 
-	stream, err := session.OpenStream()
+	stream, err := connection.OpenStream()
 	if err != nil {
 		panic(fmt.Errorf("failed to open stream: %w", err))
 	}
@@ -199,7 +199,7 @@ func Run(addr net.UDPAddr, timeToFirstByteOnly bool, printRaw bool, createQLog b
 		}
 	}
 
-	err = session.CloseWithError(common.RuntimeReachedErrorCode, "runtime_reached")
+	err = connection.CloseWithError(common.RuntimeReachedErrorCode, "runtime_reached")
 	if err != nil {
 		panic(fmt.Errorf("failed to close connection: %w", err))
 	}
