@@ -15,6 +15,8 @@ import (
 
 const defaultProxyTLSCertificateFile = "proxy.crt"
 const defaultProxyTLSKeyFile = "proxy.key"
+const defaultServerTLSCertificateFile = "server.crt"
+const defaultServerTLSKeyFile = "server.key"
 
 func main() {
 	app := &cli.App{
@@ -200,7 +202,7 @@ func main() {
 					&cli.StringFlag{
 						Name:  "tls-cert",
 						Usage: "certificate file to trust the server",
-						Value: "server.crt",
+						Value: defaultServerTLSCertificateFile,
 					},
 					&cli.StringFlag{
 						Name:  "tls-proxy-cert",
@@ -318,12 +320,12 @@ func main() {
 					&cli.StringFlag{
 						Name:  "tls-cert",
 						Usage: "certificate file to use",
-						Value: "server.crt",
+						Value: defaultServerTLSCertificateFile,
 					},
 					&cli.StringFlag{
 						Name:  "tls-key",
 						Usage: "key file to use",
-						Value: "server.key",
+						Value: defaultServerTLSKeyFile,
 					},
 					&cli.UintFlag{
 						Name:  "initial-congestion-window",

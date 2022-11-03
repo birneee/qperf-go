@@ -65,8 +65,8 @@ func Run(addr net.UDPAddr, tlsProxyCertFile string, tlsProxyKeyFile string, next
 	var serverFacingTracer logging.Tracer
 	var clientFacingTracer logging.Tracer
 	if qlog {
-		clientFacingTracer = common.NewQlogTrager(fmt.Sprintf("%s_client_facing", qlogPrefix), logger)
-		serverFacingTracer = common.NewQlogTrager(fmt.Sprintf("%s_server_facing", qlogPrefix), logger)
+		clientFacingTracer = common.NewQlogTracer(fmt.Sprintf("%s_client_facing", qlogPrefix), logger)
+		serverFacingTracer = common.NewQlogTracer(fmt.Sprintf("%s_server_facing", qlogPrefix), logger)
 	}
 
 	clientSideProxyConf := &proxy.RestoreConfig{

@@ -21,7 +21,7 @@ func Run(addr net.UDPAddr, createQLog bool, migrateAfter time.Duration, tlsServe
 	tracers := make([]logging.Tracer, 0)
 
 	if createQLog {
-		tracers = append(tracers, common.NewQlogTrager(qlogPrefix, logger))
+		tracers = append(tracers, common.NewQlogTracer(qlogPrefix, logger))
 	}
 
 	if initialReceiveWindow > maxReceiveWindow {

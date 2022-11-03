@@ -40,7 +40,7 @@ func Run(addr net.UDPAddr, timeToFirstByteOnly bool, printRaw bool, createQLog b
 	})
 
 	if createQLog {
-		tracers = append(tracers, common.NewQlogTrager(qlogPrefix, c.logger))
+		tracers = append(tracers, common.NewQlogTracer(qlogPrefix, c.logger))
 	}
 
 	tracers = append(tracers, common.NewMigrationTracer(func(addr net.Addr) {
