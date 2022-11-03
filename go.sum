@@ -18,6 +18,8 @@ github.com/birneee/qtls-go1-19 v0.1.0 h1:6Uq+3e1RgZH0olDHU2rNK+JB7D7IUVr0KBBrsZo
 github.com/birneee/qtls-go1-19 v0.1.0/go.mod h1:5HTDWtVudo/WFsHKRNuOhWlbdjrfs5JHrYb0wIJqGpI=
 github.com/birneee/quic-go v0.29.0 h1:dCzzSMPkkx4J6FXQGKuCik6MDMlyRwEjYmNpARYMsgY=
 github.com/birneee/quic-go v0.29.0/go.mod h1:u4FTgYtnFj7BhBDXN+1Ebvsrw1zRRb18hXsrwzdIHnU=
+github.com/birneee/quic-go v0.31.0 h1:/lOI0JC2sW0wAnQ3EZ0o5GJOMBzFU66PhzfnkqgAv8Y=
+github.com/birneee/quic-go v0.31.0/go.mod h1:u4FTgYtnFj7BhBDXN+1Ebvsrw1zRRb18hXsrwzdIHnU=
 github.com/bradfitz/go-smtpd v0.0.0-20170404230938-deb6d6237625/go.mod h1:HYsPBTaaSFSlLx/70C2HPIMNZpVV8+vt/A+FMnYP11g=
 github.com/buger/jsonparser v0.0.0-20181115193947-bf1c66bbce23/go.mod h1:bbYlZJ7hK1yFx9hf58LP0zeX7UjIGs20ufpu3evjr+s=
 github.com/client9/misspell v0.3.4/go.mod h1:qj6jICC3Q7zFZvVWo7KLAzC3yx5G7kyvSDkc90ppPyw=

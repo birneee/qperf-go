@@ -3,12 +3,11 @@ module qperf-go
 go 1.19
 
 replace (
-	github.com/lucas-clemente/quic-go => github.com/birneee/quic-go v0.30.0
+	github.com/lucas-clemente/quic-go => github.com/birneee/quic-go v0.31.0
 	github.com/marten-seemann/qtls-go1-19 => github.com/birneee/qtls-go1-19 v0.1.0
 )
 
 require (
-	github.com/birneee/hquic-proxy-go v0.4.0
 	github.com/dustin/go-humanize v1.0.0
 	github.com/lucas-clemente/quic-go v0.29.2
 	github.com/marten-seemann/qtls-go1-19 v0.1.1

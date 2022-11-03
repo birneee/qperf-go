@@ -3,7 +3,6 @@ package client
 import (
 	"crypto/tls"
 	"fmt"
-	"github.com/birneee/hquic-proxy-go/proxy"
 	"github.com/dustin/go-humanize"
 	"github.com/lucas-clemente/quic-go"
 	"github.com/lucas-clemente/quic-go/logging"
@@ -58,7 +57,7 @@ func Run(addr net.UDPAddr, timeToFirstByteOnly bool, printRaw bool, createQLog b
 			Addr: proxyAddr.String(),
 			TlsConf: &tls.Config{
 				RootCAs:            common.NewCertPoolWithCert(tlsProxyCertFile),
-				NextProtos:         []string{proxy.HQUICProxyALPN},
+				NextProtos:         []string{quic.HQUICProxyALPN},
 				ClientSessionCache: tls.NewLRUClientSessionCache(1),
 			},
 			Config: &quic.Config{

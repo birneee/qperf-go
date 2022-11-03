@@ -8,13 +8,10 @@ import (
 	"os"
 	"qperf-go/client"
 	"qperf-go/common"
-	"qperf-go/proxy"
 	"qperf-go/server"
 	"time"
 )
 
-const defaultProxyTLSCertificateFile = "proxy.crt"
-const defaultProxyTLSKeyFile = "proxy.key"
 const defaultServerTLSCertificateFile = "server.crt"
 const defaultServerTLSKeyFile = "server.key"
 
@@ -24,139 +21,11 @@ func main() {
 		Usage: "A performance measurement tool for QUIC similar to iperf",
 		Commands: []*cli.Command{
 			{
-				Name:  "proxy",
-				Usage: "run in proxy mode",
-				Flags: []cli.Flag{
-					&cli.StringFlag{
-						Name:  "addr",
-						Usage: "address of the proxy to listen on",
-						Value: "0.0.0.0",
-					},
-					&cli.UintFlag{
-						Name:  "port",
-						Usage: "port of the proxy to listen on, for control connections",
-						Value: common.DefaultProxyControlPort,
-					},
-					&cli.StringFlag{
-						Name:  "tls-cert",
-						Usage: "certificate file to use",
-						Value: defaultProxyTLSCertificateFile,
-					},
-					&cli.StringFlag{
-						Name:  "tls-key",
-						Usage: "key file to use",
-						Value: defaultProxyTLSKeyFile,
-					},
-					&cli.StringFlag{
-						Name:  "next-proxy",
-						Usage: "the additional, server-facing proxy to use, in the form \"host:port\", default port 18081 if not specified",
-					},
-					&cli.StringFlag{
-						Name:  "next-proxy-cert",
-						Usage: "certificate file to trust the next proxy",
-						Value: "proxy.crt",
-					},
-					&cli.UintFlag{
-						Name:  "client-facing-initial-congestion-window",
-						Usage: "the initial congestion window to use on client facing proxy connections, in number of packets",
-						Value: quic.DefaultInitialCongestionWindow,
-					},
-					&cli.UintFlag{
-						Name:  "client-facing-min-congestion-window",
-						Usage: "the minimum congestion window to use on client facing proxy connections, in number of packets",
-						Value: quic.DefaultMinCongestionWindow,
-					},
-					&cli.UintFlag{
-						Name:  "client-facing-max-congestion-window",
-						Usage: "the maximum congestion window to use on client facing proxy connections, in number of packets",
-						Value: quic.DefaultMaxCongestionWindow,
-					},
-					&cli.StringFlag{
-						Name:  "client-facing-initial-receive-window",
-						Usage: "the initial receive window on the client facing proxy connection, in bytes, overwrites the value from the handover state",
-					},
-					&cli.StringFlag{
-						Name:  "server-facing-initial-receive-window",
-						Usage: "the initial receive window on the server facing proxy connection, in bytes, overwrites the value from the handover state",
-					},
-					&cli.StringFlag{
-						Name:  "server-facing-max-receive-window",
-						Usage: "the maximum receive window on the server facing proxy connection, in bytes, overwrites the value from the handover state",
-					},
-					&cli.BoolFlag{
-						Name:  "0rtt",
-						Usage: "gather 0-RTT information to the next proxy beforehand",
-						Value: false,
-					},
-					&cli.BoolFlag{
-						Name:  "qlog",
-						Usage: "create qlog file",
-					},
-					&cli.StringFlag{
-						Name:  "qlog-prefix",
-						Usage: "the prefix of the qlog file name",
-						Value: "proxy",
-					},
-					&cli.StringFlag{
-						Name:  "log-prefix",
-						Usage: "the prefix of the command line output",
-						Value: "",
-					},
-				},
+				Name:     "proxy",
+				HideHelp: true,
+				Usage:    "no longer supported! moved to https://github.com/birneee/hquic-proxy-go",
 				Action: func(c *cli.Context) error {
-					var nextProxyAddr *net.UDPAddr
-					if c.IsSet("next-proxy") {
-						var err error
-						nextProxyAddr, err = common.ParseResolveHost(c.String("next-proxy"), common.DefaultProxyControlPort)
-						if err != nil {
-							panic(err)
-						}
-					}
-					var clientSideInitialReceiveWindow uint64
-					if c.IsSet("client-facing-initial-receive-window") {
-						var err error
-						clientSideInitialReceiveWindow, err = common.ParseByteCountWithUnit(c.String("client-facing-initial-receive-window"))
-						if err != nil {
-							return fmt.Errorf("failed to parse client-facing-initial-receive-window: %w", err)
-						}
-					}
-					var serverSideInitialReceiveWindow uint64
-					if c.IsSet("server-facing-initial-receive-window") {
-						var err error
-						serverSideInitialReceiveWindow, err = common.ParseByteCountWithUnit(c.String("server-facing-initial-receive-window"))
-						if err != nil {
-							return fmt.Errorf("failed to parse server-facing-initial-receive-window: %w", err)
-						}
-					}
-					var serverSideMaxReceiveWindow uint64
-					if c.IsSet("server-facing-max-receive-window") {
-						var err error
-						serverSideMaxReceiveWindow, err = common.ParseByteCountWithUnit(c.String("server-facing-max-receive-window"))
-						if err != nil {
-							return fmt.Errorf("failed to parse server-facing-max-receive-window: %w", err)
-						}
-					}
-					proxy.Run(
-						net.UDPAddr{
-							IP:   net.ParseIP(c.String("addr")),
-							Port: c.Int("port"),
-						},
-						c.String("tls-cert"),
-						c.String("tls-key"),
-						nextProxyAddr,
-						c.String("next-proxy-cert"),
-						uint32(c.Uint("client-facing-initial-congestion-window")),
-						uint32(c.Uint("client-facing-min-congestion-window")),
-						uint32(c.Uint("client-facing-max-congestion-window")),
-						clientSideInitialReceiveWindow,
-						serverSideInitialReceiveWindow,
-						serverSideMaxReceiveWindow,
-						c.Bool("0rtt"),
-						c.Bool("qlog"),
-						c.String("log-prefix"),
-						c.String("qlog-prefix"),
-					)
-					return nil
+					return fmt.Errorf("proxy mode is no longer part of qperf-go: moved to https://github.com/birneee/hquic-proxy-go")
 				},
 			},
 			{
@@ -165,7 +34,7 @@ func main() {
 				Flags: []cli.Flag{
 					&cli.StringFlag{
 						Name:     "addr",
-						Usage:    "address to connect to, in the form \"host:port\", default port 18080 if not specified",
+						Usage:    fmt.Sprintf("address to connect to, in the form \"host:port\", default port %d if not specified", quic.DefaultHQUICProxyControlPort),
 						Required: true,
 					},
 					&cli.BoolFlag{
@@ -254,7 +123,7 @@ func main() {
 					var proxyAddr *net.UDPAddr
 					if c.IsSet("proxy") {
 						var err error
-						proxyAddr, err = common.ParseResolveHost(c.String("proxy"), common.DefaultProxyControlPort)
+						proxyAddr, err = common.ParseResolveHost(c.String("proxy"), quic.DefaultHQUICProxyControlPort)
 						if err != nil {
 							panic(err)
 						}
