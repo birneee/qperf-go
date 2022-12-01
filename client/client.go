@@ -73,7 +73,7 @@ func Run(addr net.UDPAddr, timeToFirstByteOnly bool, printRaw bool, createQLog b
 		if err != nil {
 			panic(fmt.Errorf("failed to prepare 0-RTT to proxy: %w", err))
 		}
-		c.logger.Infof("stored proxy session ticket and token")
+		c.logger.Infof("stored session ticket and address token of proxy for 0-RTT")
 	}
 
 	var clientSessionCache tls.ClientSessionCache
