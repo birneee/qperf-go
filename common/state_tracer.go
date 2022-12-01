@@ -21,6 +21,11 @@ type StateConnectionTracer struct {
 	State *State
 }
 
-func (a StateConnectionTracer) ReceivedPacket(hdr *logging.ExtendedHeader, size logging.ByteCount, frames []logging.Frame) {
-	a.State.AddReceivedPackets(1)
+func (n StateConnectionTracer) ReceivedLongHeaderPacket(*logging.ExtendedHeader, logging.ByteCount, []logging.Frame) {
+	n.State.AddReceivedPackets(1)
+}
+
+func (n StateConnectionTracer) ReceivedShortHeaderPacket(*logging.ShortHeader, logging.ByteCount, []logging.Frame) {
+	n.State.AddReceivedPackets(1)
+
 }
