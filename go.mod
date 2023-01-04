@@ -3,7 +3,7 @@ module qperf-go
 go 1.19
 
 replace (
-	github.com/lucas-clemente/quic-go => github.com/birneee/quic-go v0.32.1-0.20230102082116-ab00e6d959ad
+	github.com/lucas-clemente/quic-go => github.com/birneee/quic-go v0.32.1-0.20230103162133-50e933a9db9f
 	github.com/marten-seemann/qtls-go1-19 => github.com/birneee/qtls-go1-19 v0.1.0
 )
 

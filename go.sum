@@ -12,8 +12,8 @@ github.com/anmitsu/go-shlex v0.0.0-20161002113705-648efa622239/go.mod h1:2FmKhYU
 github.com/beorn7/perks v0.0.0-20180321164747-3a771d992973/go.mod h1:Dwedo/Wpr24TaqPxmxbtue+5NUziq4I4S80YR8gNf3Q=
 github.com/birneee/qtls-go1-19 v0.1.0 h1:6Uq+3e1RgZH0olDHU2rNK+JB7D7IUVr0KBBrsZoxQRI=
 github.com/birneee/qtls-go1-19 v0.1.0/go.mod h1:5HTDWtVudo/WFsHKRNuOhWlbdjrfs5JHrYb0wIJqGpI=
-github.com/birneee/quic-go v0.32.1-0.20230102082116-ab00e6d959ad h1:RApEumnoaUiAW7GRIZSbmBYyl9M9rzLsOKWHdVNtzCA=
-github.com/birneee/quic-go v0.32.1-0.20230102082116-ab00e6d959ad/go.mod h1:c7DcA+7j4gN10QrWIFjTbgBa0Kn/pNM6Rz0emk4hW0M=
+github.com/birneee/quic-go v0.32.1-0.20230103162133-50e933a9db9f h1:KbrppestENjaqDSXHxjcB39PiZfA3M6Z59fYYYUEzR0=
+github.com/birneee/quic-go v0.32.1-0.20230103162133-50e933a9db9f/go.mod h1:Rivb+tPQjcX5cxHyVy5eDiAOBxhS1OWYUlAjHJbaLR0=
 github.com/bradfitz/go-smtpd v0.0.0-20170404230938-deb6d6237625/go.mod h1:HYsPBTaaSFSlLx/70C2HPIMNZpVV8+vt/A+FMnYP11g=
 github.com/buger/jsonparser v0.0.0-20181115193947-bf1c66bbce23/go.mod h1:bbYlZJ7hK1yFx9hf58LP0zeX7UjIGs20ufpu3evjr+s=
 github.com/chzyer/logex v1.1.10/go.mod h1:+Ywpsq7O8HXn0nuIou7OrIPyXbp3wmkHB+jjWRnGsAI=

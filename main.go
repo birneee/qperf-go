@@ -104,6 +104,11 @@ func main() {
 						Value: false,
 					},
 					&cli.BoolFlag{
+						Name:  "early-handover",
+						Usage: "allow creating H-QUIC state earlier, when handshake is completed but not yet confirmed. Optimistic approach! Success is not guaranteed due to race conditions.",
+						Value: false,
+					},
+					&cli.BoolFlag{
 						Name:  "xse",
 						Usage: "use XSE-QUIC extension; handshake will fail if not supported by server",
 						Value: false,
@@ -157,6 +162,7 @@ func main() {
 						maxReceiveWindow,
 						c.Bool("0rtt"),
 						c.Bool("proxy-0rtt"),
+						c.Bool("early-handover"),
 						c.Bool("xse"),
 						c.String("log-prefix"),
 						c.String("qlog-prefix"),
