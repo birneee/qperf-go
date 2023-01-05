@@ -42,11 +42,8 @@ func Run(addr net.UDPAddr, createQLog bool, migrateAfter time.Duration, tlsServe
 		MaxStreamReceiveWindow:         maxReceiveWindow,
 		InitialConnectionReceiveWindow: uint64(float64(initialReceiveWindow) * quic.ConnectionFlowControlMultiplier),
 		MaxConnectionReceiveWindow:     uint64(float64(maxReceiveWindow) * quic.ConnectionFlowControlMultiplier),
-		//DisablePathMTUDiscovery:                          true,
-		//TODO make option
-		//AcceptToken: func(_ net.Addr, _ *quic.Token) bool {
-		//	return true
-		//},
+		//TODO add option to disable mtu discovery
+		//TODO add option to enable address prevalidation
 	}
 
 	if noXse {
