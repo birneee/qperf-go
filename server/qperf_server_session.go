@@ -4,7 +4,6 @@ import (
 	"context"
 	"fmt"
 	"github.com/lucas-clemente/quic-go"
-	"net"
 	"qperf-go/common"
 	"sync"
 )
@@ -13,9 +12,8 @@ type qperfServerSession struct {
 	connection   quic.Connection
 	connectionID uint64
 	// used to detect migration
-	currentRemoteAddr net.Addr
-	logger            common.Logger
-	closeOnce         sync.Once
+	logger    common.Logger
+	closeOnce sync.Once
 }
 
 func (s *qperfServerSession) run() {
@@ -38,13 +36,6 @@ func (s *qperfServerSession) run() {
 		}
 
 		go qperfStream.run()
-	}
-}
-
-func (s *qperfServerSession) checkIfRemoteAddrChanged() {
-	if s.currentRemoteAddr != s.connection.RemoteAddr() {
-		s.currentRemoteAddr = s.connection.RemoteAddr()
-		s.logger.Infof("migrated to %s", s.currentRemoteAddr)
 	}
 }
 

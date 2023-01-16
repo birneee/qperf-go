@@ -42,8 +42,16 @@ func Run(addr net.UDPAddr, timeToFirstByteOnly bool, printRaw bool, createQLog b
 		tracers = append(tracers, common.NewQlogTracer(qlogPrefix, c.logger))
 	}
 
-	tracers = append(tracers, common.NewMigrationTracer(func(addr net.Addr) {
-		c.logger.Infof("migrated to %s", addr)
+	tracers = append(tracers, common.NewEventTracer(common.Handlers{
+		UpdatePath: func(odcid logging.ConnectionID, newRemote net.Addr) {
+			c.logger.Infof("migrated QUIC connection %s to %s at %.3f s", odcid.String(), newRemote, time.Now().Sub(c.state.GetStartTime()).Seconds())
+		},
+		StartedConnection: func(odcid logging.ConnectionID, local, remote net.Addr, srcConnID, destConnID logging.ConnectionID) {
+			c.logger.Infof("started QUIC connection %s", odcid.String())
+		},
+		ClosedConnection: func(odcid logging.ConnectionID, err error) {
+			c.logger.Infof("closed QUIC connection %s", odcid.String())
+		},
 	}))
 
 	if initialReceiveWindow > maxReceiveWindow {

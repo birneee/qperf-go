@@ -24,6 +24,19 @@ func Run(addr net.UDPAddr, createQLog bool, migrateAfter time.Duration, tlsServe
 		tracers = append(tracers, common.NewQlogTracer(qlogPrefix, logger))
 	}
 
+	//TODO somehow associate it with the qperf session for logging
+	tracers = append(tracers, common.NewEventTracer(common.Handlers{
+		UpdatePath: func(odcid logging.ConnectionID, newRemote net.Addr) {
+			logger.Infof("migrated QUIC connection %s to %s", odcid.String(), newRemote)
+		},
+		StartedConnection: func(odcid logging.ConnectionID, local, remote net.Addr, srcConnID, destConnID logging.ConnectionID) {
+			logger.Infof("started QUIC connection %s", odcid.String())
+		},
+		ClosedConnection: func(odcid logging.ConnectionID, err error) {
+			logger.Infof("closed QUIC connection %s", odcid.String())
+		},
+	}))
+
 	if initialReceiveWindow > maxReceiveWindow {
 		maxReceiveWindow = initialReceiveWindow
 	}
@@ -92,10 +105,9 @@ func Run(addr net.UDPAddr, createQLog bool, migrateAfter time.Duration, tlsServe
 		}
 
 		qperfSession := &qperfServerSession{
-			connection:        quicConnection,
-			connectionID:      nextConnectionId,
-			currentRemoteAddr: quicConnection.RemoteAddr(),
-			logger:            logger.WithPrefix(fmt.Sprintf("connection %d", nextConnectionId)),
+			connection:   quicConnection,
+			connectionID: nextConnectionId,
+			logger:       logger.WithPrefix(fmt.Sprintf("connection %d", nextConnectionId)),
 		}
 
 		go qperfSession.run()

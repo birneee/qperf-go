@@ -34,6 +34,5 @@ func (s *qperfServerStream) run() {
 			s.session.close(err)
 			return
 		}
-		s.session.checkIfRemoteAddrChanged()
 	}
 }

@@ -84,3 +84,7 @@ func (s *State) SetEstablishmentTime() {
 func (s *State) EstablishmentTime() time.Time {
 	return s.establishmentTime
 }
+
+func (s *State) GetStartTime() time.Time {
+	return s.startTime
+}
