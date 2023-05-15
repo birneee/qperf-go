@@ -1,6 +1,6 @@
 # QPERF-GO
 
-A transport performance measurement tool for QUIC ([RFC9000](https://datatracker.ietf.org/doc/html/rfc9000)) similar to iperf.
+A performance measurement tool for QUIC ([RFC9000](https://datatracker.ietf.org/doc/html/rfc9000)) similar to iperf.
 Uses https://github.com/birneee/quic-go
 
 ## Features
