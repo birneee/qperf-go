@@ -3,6 +3,7 @@ package main
 import (
 	"crypto/tls"
 	"fmt"
+	"github.com/quic-go/quic-go"
 	"github.com/urfave/cli/v2"
 	"net"
 	"os"
@@ -125,6 +126,20 @@ func clientCommand(config *client.Config) *cli.Command {
 				Value: false,
 				Action: func(context *cli.Context, b bool) error {
 					config.Use0RTT = b
+					return nil
+				},
+			},
+			&cli.BoolFlag{
+				Name:       "xads",
+				Usage:      "use XADS-QUIC extension; handshake will fail if not supported by server",
+				Value:      false,
+				HasBeenSet: true,
+				Action: func(ctx *cli.Context, b bool) error {
+					if b {
+						config.QuicConfig.Experimental.ExtraApplicationDataSecurity = quic.EnforceExtraApplicationDataSecurity
+					} else {
+						config.QuicConfig.Experimental.ExtraApplicationDataSecurity = quic.DisableExtraApplicationDataSecurity
+					}
 					return nil
 				},
 			},
@@ -311,6 +326,20 @@ func serverCommand(config *server.Config) *cli.Command {
 						return fmt.Errorf("failed to parse max-receive-window: %w", err)
 					}
 					config.QuicConfig.MaxConnectionReceiveWindow = uint64(float64(config.QuicConfig.MaxStreamReceiveWindow) * common.ConnectionFlowControlMultiplier)
+					return nil
+				},
+			},
+			&cli.BoolFlag{
+				Name:       "no-xads",
+				Usage:      "disable XADS-QUIC extension; XADS-QUIC handshakes will fail",
+				Value:      false,
+				HasBeenSet: true,
+				Action: func(ctx *cli.Context, b bool) error {
+					if b {
+						config.QuicConfig.Experimental.ExtraApplicationDataSecurity = quic.DisableExtraApplicationDataSecurity
+					} else {
+						config.QuicConfig.Experimental.ExtraApplicationDataSecurity = quic.PreferExtraApplicationDataSecurity
+					}
 					return nil
 				},
 			},

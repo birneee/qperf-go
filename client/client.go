@@ -117,6 +117,10 @@ func Run(conf *Config) {
 		c.qlog.RecordEventAtTime(c.state.HandshakeConfirmedTime(), common.HandshakeConfirmedEvent{})
 	}()
 
+	if connection.ExtraApplicationDataSecurity() {
+		c.qlog.RecordEvent(qlog_app.AppInfoEvent{Message: "use XADS-QUIC"})
+	}
+
 	// close gracefully on interrupt (CTRL+C)
 	intChan := make(chan os.Signal, 1)
 	signal.Notify(intChan, os.Interrupt)

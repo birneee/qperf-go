@@ -17,15 +17,16 @@ type QlogWriterConnectionTracer interface {
 }
 
 type connectionTracer struct {
-	qlogWriter                    qlog.QlogWriter
-	odcid                         string
-	perspective                   logging.Perspective
-	lastMetrics                   *metrics
-	groupID                       string
-	fastPathIncludePacketReceived bool
-	fastPathIncludePacketSent     bool
-	fastPathIncludeMetricsUpdated bool
-	fastPathIncludeLossTimerSet   bool
+	qlogWriter                        qlog.QlogWriter
+	odcid                             string
+	perspective                       logging.Perspective
+	lastMetrics                       *metrics
+	groupID                           string
+	fastPathIncludePacketReceived     bool
+	fastPathIncludePacketSent         bool
+	fastPathIncludeMetricsUpdated     bool
+	fastPathIncludeLossTimerSet       bool
+	fastPathIncludeXadsRecordReceived bool
 }
 
 var _ logging.ConnectionTracer = &connectionTracer{}
@@ -46,10 +47,11 @@ func NewConnectionTracer(qlogWriter qlog.QlogWriter, p logging.Perspective, odci
 		odcid:       odcid.String(),
 		groupID:     odcid.String(),
 		//TODO add more fast paths for performance critical events
-		fastPathIncludePacketReceived: qlogWriter.Includes(eventPacketReceived{}.Category(), eventPacketReceived{}.Name()),
-		fastPathIncludePacketSent:     qlogWriter.Includes(eventPacketSent{}.Category(), eventPacketSent{}.Name()),
-		fastPathIncludeMetricsUpdated: qlogWriter.Includes(eventMetricsUpdated{}.Category(), eventMetricsUpdated{}.Name()),
-		fastPathIncludeLossTimerSet:   qlogWriter.Includes(eventLossTimerSet{}.Category(), eventLossTimerSet{}.Name()),
+		fastPathIncludePacketReceived:     qlogWriter.Includes(eventPacketReceived{}.Category(), eventPacketReceived{}.Name()),
+		fastPathIncludePacketSent:         qlogWriter.Includes(eventPacketSent{}.Category(), eventPacketSent{}.Name()),
+		fastPathIncludeMetricsUpdated:     qlogWriter.Includes(eventMetricsUpdated{}.Category(), eventMetricsUpdated{}.Name()),
+		fastPathIncludeLossTimerSet:       qlogWriter.Includes(eventLossTimerSet{}.Category(), eventLossTimerSet{}.Name()),
+		fastPathIncludeXadsRecordReceived: qlogWriter.Includes(eventXadsRecordReceived{}.Category(), eventXadsRecordReceived{}.Name()),
 	}
 	return t
 }
@@ -425,6 +427,20 @@ func (t *connectionTracer) Debug(name, msg string) {
 	t.recordEvent(time.Now(), &eventGeneric{
 		name: name,
 		msg:  msg,
+	})
+	//t.mutex.Unlock()
+}
+
+func (t *connectionTracer) XadsReceiveRecord(streamID logging.StreamID, rawLength int, dataLength int) {
+	//TODO this event is not standardized by https://datatracker.ietf.org/doc/html/draft-marx-qlog-event-definitions-quic-h3
+	if !t.fastPathIncludeXadsRecordReceived {
+		return
+	}
+	//t.mutex.Lock()
+	t.recordEvent(time.Now(), &eventXadsRecordReceived{
+		streamID:   streamID,
+		rawLength:  rawLength,
+		dataLength: dataLength,
 	})
 	//t.mutex.Unlock()
 }
