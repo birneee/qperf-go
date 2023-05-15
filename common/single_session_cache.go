@@ -3,7 +3,7 @@ package common
 import (
 	"context"
 	"crypto/tls"
-	"github.com/marten-seemann/qtls-go1-19"
+	"github.com/quic-go/qtls-go1-20"
 )
 
 type SingleSessionCache struct {

@@ -34,6 +34,8 @@ type Logger interface {
 	Errorf(format string, args ...interface{})
 	Infof(format string, args ...interface{})
 	Debugf(format string, args ...interface{})
+	// Debug returns true if the log level is LogLevelDebug
+	Debug() bool
 }
 
 // DefaultLogger is used by qperf for logging.
@@ -103,6 +105,10 @@ func (l *defaultLogger) WithPrefix(prefix string) Logger {
 		timeFormat: l.timeFormat,
 		prefix:     prefix,
 	}
+}
+
+func (l *defaultLogger) Debug() bool {
+	return l.logLevel == LogLevelDebug
 }
 
 func init() {

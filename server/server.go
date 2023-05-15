@@ -2,78 +2,112 @@ package server
 
 import (
 	"context"
-	"crypto/tls"
 	"fmt"
-	"github.com/lucas-clemente/quic-go"
-	"github.com/lucas-clemente/quic-go/logging"
+	"github.com/quic-go/quic-go"
+	"github.com/quic-go/quic-go/logging"
 	"net"
 	"os"
+	"os/signal"
 	"qperf-go/common"
+	qlog2 "qperf-go/common/qlog"
+	"qperf-go/common/qlog_app"
+	"qperf-go/common/qlog_quic"
+	"sync"
+	"syscall"
 )
 
+type Server struct {
+	nextConnectionId uint64
+	logger           common.Logger
+	listener         *quic.EarlyListener
+	config           *Config
+	qlog             qlog2.QlogWriter
+	closeOnce        sync.Once
+	ctx              context.Context
+	cancelCtx        context.CancelFunc
+}
+
 // Run server.
-func Run(addr net.UDPAddr, createQLog bool, tlsServerCertFile string, tlsServerKeyFile string, initialReceiveWindow uint64, maxReceiveWindow uint64, logPrefix string, qlogPrefix string) {
+// if proxyAddr is nil, no proxy is used.
+func Run(addr net.UDPAddr, logPrefix string, config *Config) {
+	s := &Server{
+		logger:           common.DefaultLogger.WithPrefix(logPrefix),
+		nextConnectionId: 0,
+		config:           config,
+	}
+	s.ctx, s.cancelCtx = context.WithCancel(context.Background())
 
-	logger := common.DefaultLogger.WithPrefix(logPrefix)
+	tracers := make([]func(ctx context.Context, perspective logging.Perspective, connectionID logging.ConnectionID) logging.ConnectionTracer, 0)
 
-	tracers := make([]logging.Tracer, 0)
-
-	if createQLog {
-		tracers = append(tracers, common.NewQlogTrager(qlogPrefix, logger))
+	if s.config.QlogPathTemplate == "" {
+		s.qlog = qlog2.NewStdoutQlogWriter(s.config.QlogConfig)
+		tracers = append(tracers, qlog_quic.NewTracer(s.qlog))
+	} else {
+		tracer := qlog_quic.NewFileQlogTracer(s.config.QlogPathTemplate, s.config.QlogConfig)
+		s.qlog = tracer(s.ctx, logging.PerspectiveServer, logging.ConnectionID{}).(qlog_quic.QlogWriterConnectionTracer).QlogWriter()
+		tracers = append(tracers, tracer)
 	}
 
-	if initialReceiveWindow > maxReceiveWindow {
-		maxReceiveWindow = initialReceiveWindow
+	s.config.QuicConfig.Tracer = func(ctx context.Context, perspective logging.Perspective, id quic.ConnectionID) logging.ConnectionTracer {
+		var connectionTracers []logging.ConnectionTracer
+		for _, tracer := range tracers {
+			connectionTracers = append(connectionTracers, tracer(ctx, perspective, id))
+		}
+		return logging.NewMultiplexedConnectionTracer(connectionTracers...)
 	}
 
-	conf := quic.Config{
-		Tracer:                         logging.NewMultiplexedTracer(tracers...),
-		InitialStreamReceiveWindow:     initialReceiveWindow,
-		MaxStreamReceiveWindow:         maxReceiveWindow,
-		InitialConnectionReceiveWindow: uint64(float64(initialReceiveWindow) * common.ConnectionFlowControlMultiplier),
-		MaxConnectionReceiveWindow:     uint64(float64(maxReceiveWindow) * common.ConnectionFlowControlMultiplier),
-		//DisablePathMTUDiscovery:                          true,
-		//TODO make option
-		//AcceptToken: func(_ net.Addr, _ *quic.Token) bool {
-		//	return true
-		//},
-	}
+	//TODO add option to disable mtu discovery
+	//TODO add option to enable address prevalidation
 
-	//TODO make CLI option
-	tlsCert, err := tls.LoadX509KeyPair(tlsServerCertFile, tlsServerKeyFile)
+	var err error
+	s.listener, err = quic.ListenAddrEarly(addr.String(), s.config.TlsConfig, s.config.QuicConfig)
 	if err != nil {
 		panic(err)
 	}
 
-	tlsConf := tls.Config{
-		Certificates: []tls.Certificate{tlsCert},
-		NextProtos:   []string{"qperf"},
-	}
+	s.qlog.RecordEvent(qlog_app.AppInfoEvent{Message: fmt.Sprintf("starting server with pid %d, port %d", os.Getpid(), addr.Port)})
 
-	listener, err := quic.ListenAddrEarly(addr.String(), &tlsConf, &conf)
-	if err != nil {
-		panic(err)
-	}
-
-	// print new reno as this is the only option in quic-go
-	logger.Infof("starting server with pid %d, port %d, cc new reno, iw %d", os.Getpid(), addr.Port, common.InitialCongestionWindow)
-
-	var nextConnectionId uint64 = 0
+	c := make(chan os.Signal, 1)
+	signal.Notify(c, os.Interrupt, syscall.SIGTERM, os.Kill)
+	go func() {
+		<-c
+		s.Close(nil)
+	}()
 
 	for {
-		quicConnection, err := listener.Accept(context.Background())
+		quicConnection, err := s.listener.Accept(context.Background())
 		if err != nil {
-			panic(err)
+			s.Close(err)
+			return
 		}
-
-		qperfSession := &qperfServerSession{
-			connection:        quicConnection,
-			connectionID:      nextConnectionId,
-			currentRemoteAddr: quicConnection.RemoteAddr(),
-			logger:            logger.WithPrefix(fmt.Sprintf("connection %d", nextConnectionId)),
+		switch alpn := quicConnection.ConnectionState().TLS.NegotiatedProtocol; alpn {
+		case "qperf":
+			s.acceptQperf(quicConnection)
+		default:
+			panic(fmt.Sprintf("unexpected ALPN: %s", alpn))
 		}
-
-		go qperfSession.run()
-		nextConnectionId += 1
 	}
+}
+
+func (s *Server) Close(err error) {
+	s.closeOnce.Do(func() {
+		if err != nil {
+			s.qlog.RecordEvent(qlog_app.AppErrorEvent{Message: err.Error()})
+		}
+		s.listener.Close()
+		s.qlog.Close()
+	})
+}
+
+func (s *Server) acceptQperf(quicConn quic.EarlyConnection) {
+	_, err := newQperfConnection(
+		quicConn,
+		s.nextConnectionId,
+		s.logger.WithPrefix(fmt.Sprintf("connection %d", s.nextConnectionId)),
+		s.config,
+	)
+	if err != nil {
+		panic(err)
+	}
+	s.nextConnectionId += 1
 }

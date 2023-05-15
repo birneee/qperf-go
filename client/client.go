@@ -1,106 +1,121 @@
 package client
 
 import (
+	"context"
 	"crypto/tls"
 	"fmt"
-	"github.com/dustin/go-humanize"
-	"github.com/lucas-clemente/quic-go"
-	"github.com/lucas-clemente/quic-go/logging"
+	"github.com/quic-go/quic-go"
+	"github.com/quic-go/quic-go/logging"
 	"io"
-	"net"
 	"os"
 	"os/signal"
 	"qperf-go/common"
+	qlog2 "qperf-go/common/qlog"
+	"qperf-go/common/qlog_app"
+	"qperf-go/common/qlog_quic"
+	"qperf-go/control_frames"
+	"qperf-go/errors"
+	"sync"
+	"syscall"
 	"time"
 )
 
 type client struct {
-	state          common.State
-	printRaw       bool
-	reportInterval time.Duration
-	logger         common.Logger
+	conn      quic.Connection
+	state     *common.State
+	logger    common.Logger
+	config    *Config
+	qlog      qlog2.QlogWriter
+	closeOnce sync.Once
+	ctx       context.Context
+	cancelCtx context.CancelFunc
 }
 
-// Run client.
-func Run(addr net.UDPAddr, timeToFirstByteOnly bool, printRaw bool, createQLog bool, probeTime time.Duration, reportInterval time.Duration, tlsServerCertFile string, initialReceiveWindow uint64, maxReceiveWindow uint64, use0RTT bool, logPrefix string, qlogPrefix string) {
+// Run client
+func Run(conf *Config) {
 	c := client{
-		state:          common.State{},
-		printRaw:       printRaw,
-		reportInterval: reportInterval,
+		state:  common.NewState(),
+		config: conf,
+	}
+	c.ctx, c.cancelCtx = context.WithCancel(context.Background())
+
+	c.logger = common.DefaultLogger.WithPrefix(c.config.LogPrefix)
+
+	var tracers []func(ctx context.Context, perspective logging.Perspective, connectionID logging.ConnectionID) logging.ConnectionTracer
+
+	tracers = append(tracers, common.NewStateTracer(c.state))
+
+	if c.config.QlogPathTemplate == "" {
+		c.qlog = qlog2.NewStdoutQlogWriter(c.config.QlogConfig)
+		tracers = append(tracers, qlog_quic.NewTracer(c.qlog))
+	} else {
+		tracer := qlog_quic.NewFileQlogTracer(c.config.QlogPathTemplate, c.config.QlogConfig)
+		c.qlog = tracer(c.ctx, logging.PerspectiveClient, logging.ConnectionID{}).(qlog_quic.QlogWriterConnectionTracer).QlogWriter()
+		tracers = append(tracers, tracer)
 	}
 
-	c.logger = common.DefaultLogger.WithPrefix(logPrefix)
-
-	tracers := make([]logging.Tracer, 0)
-
-	tracers = append(tracers, common.StateTracer{
-		State: &c.state,
-	})
-
-	if createQLog {
-		tracers = append(tracers, common.NewQlogTrager(qlogPrefix, c.logger))
+	if c.config.TlsConfig.ClientSessionCache != nil {
+		panic("unexpected value")
+	}
+	if c.config.Use0RTT {
+		c.config.TlsConfig.ClientSessionCache = tls.NewLRUClientSessionCache(1)
 	}
 
-	tracers = append(tracers, common.NewMigrationTracer(func(addr net.Addr) {
-		c.logger.Infof("migrated to %s", addr)
-	}))
-
-	if initialReceiveWindow > maxReceiveWindow {
-		maxReceiveWindow = initialReceiveWindow
+	if c.config.QuicConfig.TokenStore != nil {
+		panic("unexpected value")
+	}
+	if c.config.Use0RTT {
+		c.config.QuicConfig.TokenStore = quic.NewLRUTokenStore(1, 1)
 	}
 
-	var clientSessionCache tls.ClientSessionCache
-	if use0RTT {
-		clientSessionCache = tls.NewLRUClientSessionCache(1)
+	if c.config.QuicConfig.Tracer != nil {
+		panic("unexptected value")
+	}
+	c.config.QuicConfig.Tracer = func(ctx context.Context, perspective logging.Perspective, id quic.ConnectionID) logging.ConnectionTracer {
+		var connectionTracers []logging.ConnectionTracer
+		for _, tracer := range tracers {
+			connectionTracers = append(connectionTracers, tracer(ctx, perspective, id))
+		}
+		return logging.NewMultiplexedConnectionTracer(connectionTracers...)
 	}
 
-	var tokenStore quic.TokenStore
-	if use0RTT {
-		tokenStore = quic.NewLRUTokenStore(1, 1)
-	}
-
-	tlsConf := &tls.Config{
-		RootCAs:            common.NewCertPoolWithCert(tlsServerCertFile),
-		NextProtos:         []string{common.QperfALPN},
-		ClientSessionCache: clientSessionCache,
-	}
-
-	conf := quic.Config{
-		Tracer:                         logging.NewMultiplexedTracer(tracers...),
-		InitialStreamReceiveWindow:     initialReceiveWindow,
-		MaxStreamReceiveWindow:         maxReceiveWindow,
-		InitialConnectionReceiveWindow: uint64(float64(initialReceiveWindow) * common.ConnectionFlowControlMultiplier),
-		MaxConnectionReceiveWindow:     uint64(float64(maxReceiveWindow) * common.ConnectionFlowControlMultiplier),
-		TokenStore:                     tokenStore,
-	}
-
-	if use0RTT {
-		err := common.PingToGatherSessionTicketAndToken(addr.String(), tlsConf, &conf)
+	if c.config.Use0RTT {
+		err := common.PingToGatherSessionTicketAndToken(c.ctx, c.config.RemoteAddress, c.config.TlsConfig, c.config.QuicConfig)
 		if err != nil {
 			panic(fmt.Errorf("failed to prepare 0-RTT: %w", err))
 		}
-		c.logger.Infof("stored session ticket and token")
+		c.qlog.RecordEvent(qlog_app.AppInfoEvent{Message: "stored session ticket and token"})
 	}
 
 	c.state.SetStartTime()
 
 	var connection quic.Connection
-	if use0RTT {
+	if c.config.Use0RTT {
 		var err error
-		connection, err = quic.DialAddrEarly(addr.String(), tlsConf, &conf)
+		connection, err = quic.DialAddrEarly(c.ctx, c.config.RemoteAddress, c.config.TlsConfig, c.config.QuicConfig)
 		if err != nil {
 			panic(fmt.Errorf("failed to establish connection: %w", err))
 		}
 	} else {
 		var err error
-		connection, err = quic.DialAddr(addr.String(), tlsConf, &conf)
+		connection, err = quic.DialAddr(c.ctx, c.config.RemoteAddress, c.config.TlsConfig, c.config.QuicConfig)
 		if err != nil {
 			panic(fmt.Errorf("failed to establish connection: %w", err))
 		}
 	}
 
+	c.conn = connection
+
+	//TODO extract somehow from connection tracer
 	c.state.SetEstablishmentTime()
-	c.reportEstablishmentTime(&c.state)
+	if c.qlog != nil {
+		c.qlog.RecordEventAtTime(c.state.EstablishmentTime(), common.HandshakeCompletedEvent{})
+	}
+
+	go func() {
+		c.state.AwaitHandshakeConfirmed()
+		c.qlog.RecordEventAtTime(c.state.HandshakeConfirmedTime(), common.HandshakeConfirmedEvent{})
+	}()
 
 	// close gracefully on interrupt (CTRL+C)
 	intChan := make(chan os.Signal, 1)
@@ -116,128 +131,187 @@ func Run(addr net.UDPAddr, timeToFirstByteOnly bool, printRaw bool, createQLog b
 		panic(fmt.Errorf("failed to open stream: %w", err))
 	}
 
-	// send some date to open stream
-	_, err = stream.Write([]byte(common.QPerfStartSendingRequest))
-	if err != nil {
-		panic(fmt.Errorf("failed to write to stream: %w", err))
-	}
-	err = stream.Close()
-	if err != nil {
-		panic(fmt.Errorf("failed to close stream: %w", err))
-	}
+	frameStream := control_frames.NewControlFrameStream(stream)
 
-	err = c.receiveFirstByte(stream)
-	if err != nil {
-		panic(fmt.Errorf("failed to receive first byte: %w", err))
-	}
-
-	c.reportFirstByte(&c.state)
-
-	if !timeToFirstByteOnly {
-		go c.receive(stream)
-
-		for {
-			if time.Now().Sub(c.state.GetFirstByteTime()) > probeTime {
-				break
-			}
-			time.Sleep(reportInterval)
-			c.report(&c.state)
+	if c.config.ReceiveStream {
+		err = frameStream.WriteFrame(&control_frames.StartSendingFrame{StreamID: stream.StreamID()})
+		if err != nil {
+			panic(fmt.Errorf("failed to write frame: %w", err))
 		}
 	}
 
-	err = connection.CloseWithError(common.RuntimeReachedErrorCode, "runtime_reached")
-	if err != nil {
-		panic(fmt.Errorf("failed to close connection: %w", err))
+	if c.config.ReceiveDatagram {
+		err = frameStream.WriteFrame(&control_frames.StartSendingDatagramsFrame{})
+		if err != nil {
+			panic(fmt.Errorf("failed to write frame: %w", err))
+		}
 	}
 
-	c.reportTotal(&c.state)
-}
+	if c.config.SendStream {
+		stream, err := c.conn.OpenUniStream()
+		if err != nil {
+			c.CloseWithError(err)
+		}
+		go func() {
+			err := c.runSend(stream)
+			if err != nil {
+				c.CloseWithError(err)
+			}
+		}()
+	}
+	if c.config.SendDatagram {
+		go func() {
+			err := c.runDatagramSend()
+			if err != nil {
+				c.CloseWithError(err)
+			}
+		}()
+	}
+	go func() {
+		c.state.AwaitFirstByteReceived()
+		c.qlog.RecordEventAtTime(c.state.FirstByteTime(), common.FirstAppDataReceivedEvent{})
+	}()
 
-func (c *client) reportEstablishmentTime(state *common.State) {
-	establishmentTime := state.EstablishmentTime().Sub(state.StartTime())
-	if c.printRaw {
-		c.logger.Infof("connection establishment time: %f s",
-			establishmentTime.Seconds())
+	if c.config.TimeToFirstByteOnly {
+		c.state.AwaitFirstByteReceived()
 	} else {
-		c.logger.Infof("connection establishment time: %s",
-			humanize.SIWithDigits(establishmentTime.Seconds(), 2, "s"))
+		go func() {
+			stream, err := c.conn.AcceptUniStream(context.Background())
+			if err != nil {
+				c.CloseWithError(err)
+				return
+			}
+			err = c.runRawReceive(stream)
+			//err := c.runFrameReceive(frameStream)
+			if err != nil {
+				c.CloseWithError(err)
+				return
+			}
+		}()
+
+		intChan := make(chan os.Signal, 1)
+		signal.Notify(intChan, os.Interrupt, syscall.SIGTERM, os.Kill)
+		go func() {
+			<-intChan
+			c.Close()
+		}()
+
+		for {
+			if time.Now().Sub(c.state.StartTime()) > c.config.ProbeTime {
+				break
+			}
+			select {
+			case <-time.After(c.config.ReportInterval):
+				c.report(c.state, false)
+			case <-c.ctx.Done():
+				break
+			}
+		}
 	}
+
+	c.Close()
 }
 
-func (c *client) reportFirstByte(state *common.State) {
-	if c.printRaw {
-		c.logger.Infof("time to first byte: %f s",
-			state.GetFirstByteTime().Sub(state.StartTime()).Seconds())
+func (c *client) report(state *common.State, total bool) {
+	var report common.Report
+	if total {
+		report = state.TotalReport()
 	} else {
-		c.logger.Infof("time to first byte: %s",
-			humanize.SIWithDigits(state.GetFirstByteTime().Sub(state.StartTime()).Seconds(), 2, "s"))
+		report = state.GetAndResetReport()
 	}
-}
-
-func (c *client) report(state *common.State) {
-	receivedBytes, receivedPackets, delta := state.GetAndResetReport()
-	if c.printRaw {
-		c.logger.Infof("second %f: %f bit/s, bytes received: %d B, packets received: %d",
-			time.Now().Sub(state.GetFirstByteTime()).Seconds(),
-			float64(receivedBytes)*8/delta.Seconds(),
-			receivedBytes,
-			receivedPackets)
-	} else if c.reportInterval == time.Second {
-		c.logger.Infof("second %.0f: %s, bytes received: %s, packets received: %d",
-			time.Now().Sub(state.GetFirstByteTime()).Seconds(),
-			humanize.SIWithDigits(float64(receivedBytes)*8/delta.Seconds(), 2, "bit/s"),
-			humanize.SI(float64(receivedBytes), "B"),
-			receivedPackets)
+	now := time.Now()
+	event := &common.ReportEvent{
+		Period: report.TimeAggregated,
+		//PacketsReceived:   &report.ReceivedPackets,
+		//MinRTT: &report.MinRTT,
+	}
+	if c.config.ReportMaxRTT {
+		event.MaxRTT = &report.MaxRTT
+	}
+	if c.config.ReportLostPackets {
+		event.PacketsLost = &report.PacketsLost
+	}
+	if c.config.ReceiveStream {
+		mbps := float32(report.ReceivedBytes) * 8 / float32(report.TimeAggregated.Seconds()) / float32(1e6)
+		event.StreamMegaBitsPerSecondReceived = &mbps
+		event.StreamBytesReceived = &report.ReceivedBytes
+	}
+	if c.config.ReceiveDatagram {
+		mbps := float32(report.ReceivedDatagramBytes) * 8 / float32(report.TimeAggregated.Seconds()) / float32(1e6)
+		event.DatagramMegaBitsPerSecondReceived = &mbps
+		event.DatagramBytesReceived = &report.ReceivedDatagramBytes
+	}
+	if c.config.SendStream {
+		mbps := float32(report.SentBytes) * 8 / float32(report.TimeAggregated.Seconds()) / float32(1e6)
+		event.StreamMegaBitsPerSecondSent = &mbps
+		event.StreamBytesSent = &report.SentBytes
+	}
+	if c.config.SendDatagram {
+		mbps := float32(report.SentDatagramBytes) * 8 / float32(report.TimeAggregated.Seconds()) / float32(1e6)
+		event.DatagramMegaBitsPerSecondSent = &mbps
+		event.DatagramBytesSent = &report.SentDatagramBytes
+	}
+	if total {
+		c.qlog.RecordEventAtTime(now, common.TotalEvent{ReportEvent: *event})
 	} else {
-		c.logger.Infof("second %.1f: %s, bytes received: %s, packets received: %d",
-			time.Now().Sub(state.GetFirstByteTime()).Seconds(),
-			humanize.SIWithDigits(float64(receivedBytes)*8/delta.Seconds(), 2, "bit/s"),
-			humanize.SI(float64(receivedBytes), "B"),
-			receivedPackets)
+		c.qlog.RecordEventAtTime(now, event)
 	}
 }
 
-func (c *client) reportTotal(state *common.State) {
-	receivedBytes, receivedPackets := state.Total()
-	if c.printRaw {
-		c.logger.Infof("total: bytes received: %d B, packets received: %d",
-			receivedBytes,
-			receivedPackets)
-	} else {
-		c.logger.Infof("total: bytes received: %s, packets received: %d",
-			humanize.SI(float64(receivedBytes), "B"),
-			receivedPackets)
-	}
-}
-
-func (c *client) receiveFirstByte(stream quic.ReceiveStream) error {
-	buf := make([]byte, 1)
+// do not interpret qperf control_frames
+func (c *client) runRawReceive(stream quic.ReceiveStream) error {
 	for {
-		received, err := stream.Read(buf)
+		read, err := io.CopyN(io.Discard, stream, int64(control_frames.MaxFrameLength))
+		c.state.AddReceivedBytes(uint64(read))
 		if err != nil {
 			return err
 		}
-		if received != 0 {
-			c.state.AddReceivedBytes(uint64(received))
-			return nil
+	}
+}
+
+func (c *client) runSend(stream quic.SendStream) error {
+	var buf [65536]byte
+	for {
+		writen, err := stream.Write(buf[:])
+		if err != nil {
+			return err
+		}
+		c.state.AddSentBytes(uint64(writen))
+	}
+}
+
+func (c *client) runDatagramSend() error {
+	var buf = make([]byte, 1197)
+	//TODO calculate size from max_datagram_frame_size, max_udp_payload_size and path MTU
+	for {
+		err := c.conn.SendMessage(buf[:])
+		if err != nil {
+			return err
 		}
 	}
 }
 
-func (c *client) receive(reader io.Reader) {
-	buf := make([]byte, 65536)
-	for {
-		received, err := reader.Read(buf)
-		c.state.AddReceivedBytes(uint64(received))
+func (c *client) CloseWithError(err error) {
+	c.closeOnce.Do(func() {
 		if err != nil {
-			switch err := err.(type) {
-			case *quic.ApplicationError:
-				if err.ErrorCode == common.RuntimeReachedErrorCode {
-					return
-				}
-			default:
-				panic(err)
+			c.logger.Errorf("close with error: %s", err)
+			err := c.conn.CloseWithError(errors.InternalErrorCode, "internal error")
+			if err != nil {
+				panic(fmt.Errorf("failed to close connection: %s", err))
+			}
+		} else {
+			err := c.conn.CloseWithError(errors.NoError, "no error")
+			if err != nil {
+				panic(fmt.Errorf("failed to close connection: %w", err))
 			}
 		}
-	}
+		c.report(c.state, true)
+		c.cancelCtx()
+		c.qlog.Close()
+		// flush qlog
+	})
+}
+
+func (c *client) Close() {
+	c.CloseWithError(nil)
 }
