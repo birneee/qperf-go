@@ -5,7 +5,7 @@ go 1.20
 require (
 	github.com/francoispqt/gojay v1.2.13
 	github.com/quic-go/qtls-go1-20 v0.2.2
-	github.com/quic-go/quic-go v0.34.1-0.20230515071200-cec79d338c64
+	github.com/quic-go/quic-go v0.34.1-0.20230513130550-ebcc40d60e95
 	github.com/urfave/cli/v2 v2.25.0
 	golang.org/x/exp v0.0.0-20221205204356-47842c84f3db
 )
