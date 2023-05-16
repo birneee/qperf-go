@@ -282,7 +282,7 @@ func (c *client) runSend(stream quic.SendStream) error {
 
 func (c *client) runDatagramSend() error {
 	var buf = make([]byte, 1197)
-	//TODO calculate size from max_datagram_frame_size, max_udp_payload_size and path MTU
+	//TODO calculate size from max_datagram_frame_size, max_udp_payload_size and path MTU; https://github.com/quic-go/quic-go/issues/3599
 	for {
 		err := c.conn.SendMessage(buf[:])
 		if err != nil {
