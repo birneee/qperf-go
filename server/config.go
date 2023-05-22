@@ -4,6 +4,7 @@ import (
 	"crypto/tls"
 	"github.com/quic-go/quic-go"
 	"github.com/quic-go/quic-go/logging"
+	"net"
 	"qperf-go/common"
 	qlog2 "qperf-go/common/qlog"
 	"runtime/debug"
@@ -27,6 +28,14 @@ type Config struct {
 	QlogConfig       *qlog2.Config
 	TlsConfig        *tls.Config
 	QuicConfig       *quic.Config
+	// address to use to request states of unknown connection IDs
+	StateServer net.Addr
+	// transmits connection states on request
+	ServeState                       bool
+	Use0RTTStateRequest              bool
+	StateIncludesPendingStreamFrames bool
+	StateTransferConfig              *quic.StateTransferConfig
+	StateIncludesCongestionState     bool
 }
 
 func (c *Config) Populate() *Config {
@@ -39,6 +48,7 @@ func (c *Config) Populate() *Config {
 	if c.TlsConfig.NextProtos == nil {
 		c.TlsConfig.NextProtos = []string{common.QperfALPN}
 	}
+	c.StateTransferConfig = c.StateTransferConfig.Populate()
 	if c.QlogConfig == nil {
 		c.QlogConfig = &qlog2.Config{}
 		c.QlogConfig.VantagePoint = logging.PerspectiveServer

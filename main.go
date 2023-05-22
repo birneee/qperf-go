@@ -18,13 +18,16 @@ func clientCommand(config *client.Config) *cli.Command {
 		Name:  "client",
 		Usage: "run in client mode",
 		Flags: []cli.Flag{
-			&cli.StringFlag{
+			&cli.StringSliceFlag{
 				Name:     "remote-addr",
 				Aliases:  []string{"a"},
-				Usage:    fmt.Sprintf("address to connect to, in the form \"host:port\", default port %d if not specified.", common.DefaultQperfServerPort),
+				Usage:    fmt.Sprintf("address to connect to, in the form \"host:port\", default port %d if not specified. If multiple are provided, they will be used for next-remote-after", common.DefaultQperfServerPort),
 				Required: true,
-				Action: func(ctx *cli.Context, s string) error {
-					config.RemoteAddress = common.AppendPortIfNotSpecified(s, common.DefaultQperfServerPort)
+				Action: func(ctx *cli.Context, addrs []string) error {
+					for _, addr := range addrs {
+						config.RemoteAddresses = append(config.RemoteAddresses, common.AppendPortIfNotSpecified(addr, common.DefaultQperfServerPort))
+					}
+					config.TlsConfig.ServerName = common.GetHost(config.RemoteAddresses[0])
 					return nil
 				},
 			},
@@ -62,6 +65,14 @@ func clientCommand(config *client.Config) *cli.Command {
 					default:
 						return fmt.Errorf("unsupported qlog-level: %s", s)
 					}
+					return nil
+				},
+			},
+			&cli.UintFlag{
+				Name:  "next-remote-after",
+				Usage: "seconds after which the remote address is changed to the next one",
+				Action: func(context *cli.Context, u uint) error {
+					config.NextRemoteAddrAfter = time.Duration(u) * time.Second
 					return nil
 				},
 			},
@@ -218,7 +229,8 @@ func clientCommand(config *client.Config) *cli.Command {
 			config.TimeToFirstByteOnly = c.Bool("ttfb")
 			config.ReportInterval = time.Duration(c.Float64("report-interval") * float64(time.Second))
 			config.LogPrefix = c.String("log-prefix")
-			client.Run(config)
+			client := client.Dial(config)
+			<-client.Context().Done()
 			return nil
 		},
 	}
@@ -319,6 +331,70 @@ func serverCommand(config *server.Config) *cli.Command {
 				Usage: "the prefix of the command line output",
 				Value: "",
 			},
+			&cli.StringFlag{
+				Name:  "state-server",
+				Usage: "server used for requesting states of unknown connections IDs",
+				Action: func(context *cli.Context, s string) error {
+					var err error
+					config.StateServer, err = net.ResolveUDPAddr("udp", s)
+					config.StateTransferConfig.TlsConfig.ServerName = common.GetHost(s)
+					return err
+				},
+			},
+			&cli.BoolFlag{
+				Name:       "0rtt-state-request",
+				Usage:      "use 0-rtt connection for requests to state server",
+				Value:      false,
+				HasBeenSet: true,
+				Action: func(context *cli.Context, b bool) error {
+					config.Use0RTTStateRequest = b
+					return nil
+				},
+			},
+			&cli.StringFlag{
+				Name:  "tls-cert-state-server",
+				Usage: "TLS certificate to use for the state server connection",
+				Action: func(ctx *cli.Context, s string) error {
+					config.StateTransferConfig.TlsConfig.RootCAs = common.NewCertPoolFromFiles(s)
+					return nil
+				},
+			},
+			&cli.BoolFlag{
+				Name:  "serve-state",
+				Usage: "enable server for sharing connections states",
+				Value: false,
+				Action: func(context *cli.Context, b bool) error {
+					config.ServeState = b
+					return nil
+				},
+			},
+			&cli.BoolFlag{
+				Name:  "stream-state",
+				Usage: "include pending stream frames in handover state",
+				Value: false,
+				Action: func(context *cli.Context, b bool) error {
+					config.StateIncludesPendingStreamFrames = b
+					return nil
+				},
+			},
+			&cli.BoolFlag{
+				Name:  "congestion-state",
+				Usage: "include congestion state in handover",
+				Value: false,
+				Action: func(context *cli.Context, b bool) error {
+					config.StateIncludesCongestionState = b
+					return nil
+				},
+			},
+			&cli.BoolFlag{
+				Name:  "tls-skip-verify",
+				Usage: "skip verification ot the server's certificate chain and host name",
+				Value: false,
+				Action: func(context *cli.Context, b bool) error {
+					config.StateTransferConfig.TlsConfig.InsecureSkipVerify = b
+					return nil
+				},
+			},
 		},
 		Action: func(c *cli.Context) error {
 			if config.TlsConfig.Certificates == nil {
@@ -330,13 +406,11 @@ func serverCommand(config *server.Config) *cli.Command {
 
 			config.QuicConfig.MaxConnectionReceiveWindow = common.Max(config.QuicConfig.InitialConnectionReceiveWindow, config.QuicConfig.MaxConnectionReceiveWindow)
 
-			server.Run(net.UDPAddr{
-				IP:   net.ParseIP(c.String("addr")),
-				Port: c.Int("port"),
-			},
+			server := server.Listen(fmt.Sprintf("%s:%d", c.String("addr"), c.Int("port")),
 				c.String("log-prefix"),
 				config,
 			)
+			<-server.Context().Done()
 			return nil
 		},
 	}

@@ -10,6 +10,7 @@ Uses https://github.com/quic-go/quic-go
 - qlog output ([draft-ietf-quic-qlog](https://datatracker.ietf.org/doc/draft-ietf-quic-qlog-main-schema/))
 - 0-RTT handshakes
 - CPU profiling
+- experimental H-QUIC support
 
 ## Example
 ```bash

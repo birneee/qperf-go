@@ -7,6 +7,7 @@ import (
 	"github.com/quic-go/quic-go"
 	"github.com/quic-go/quic-go/logging"
 	"io"
+	"net"
 	"os"
 	"os/signal"
 	"qperf-go/common"
@@ -20,22 +21,33 @@ import (
 	"time"
 )
 
+type Client interface {
+	Context() context.Context
+	UseNextRemoteAddr() error
+}
+
 type client struct {
-	conn      quic.Connection
-	state     *common.State
-	logger    common.Logger
-	config    *Config
-	qlog      qlog2.QlogWriter
-	closeOnce sync.Once
-	ctx       context.Context
-	cancelCtx context.CancelFunc
+	conn                   quic.Connection
+	state                  *common.State
+	logger                 common.Logger
+	config                 *Config
+	qlog                   qlog2.QlogWriter
+	closeOnce              sync.Once
+	currentRemoteAddrIndex int
+	ctx                    context.Context
+	cancelCtx              context.CancelFunc
+}
+
+func (c *client) Context() context.Context {
+	return c.ctx
 }
 
 // Run client
-func Run(conf *Config) {
-	c := client{
-		state:  common.NewState(),
-		config: conf,
+func Dial(conf *Config) Client {
+	c := &client{
+		state:                  common.NewState(),
+		config:                 conf,
+		currentRemoteAddrIndex: 0,
 	}
 	c.ctx, c.cancelCtx = context.WithCancel(context.Background())
 
@@ -71,16 +83,10 @@ func Run(conf *Config) {
 	if c.config.QuicConfig.Tracer != nil {
 		panic("unexptected value")
 	}
-	c.config.QuicConfig.Tracer = func(ctx context.Context, perspective logging.Perspective, id quic.ConnectionID) logging.ConnectionTracer {
-		var connectionTracers []logging.ConnectionTracer
-		for _, tracer := range tracers {
-			connectionTracers = append(connectionTracers, tracer(ctx, perspective, id))
-		}
-		return logging.NewMultiplexedConnectionTracer(connectionTracers...)
-	}
+	c.config.QuicConfig.Tracer = common.NewMultiplexedTracer(tracers...)
 
 	if c.config.Use0RTT {
-		err := common.PingToGatherSessionTicketAndToken(c.ctx, c.config.RemoteAddress, c.config.TlsConfig, c.config.QuicConfig)
+		err := common.PingToGatherSessionTicketAndToken(c.ctx, c.config.RemoteAddresses[c.currentRemoteAddrIndex], c.config.TlsConfig, c.config.QuicConfig)
 		if err != nil {
 			panic(fmt.Errorf("failed to prepare 0-RTT: %w", err))
 		}
@@ -92,13 +98,13 @@ func Run(conf *Config) {
 	var connection quic.Connection
 	if c.config.Use0RTT {
 		var err error
-		connection, err = quic.DialAddrEarly(c.ctx, c.config.RemoteAddress, c.config.TlsConfig, c.config.QuicConfig)
+		connection, err = quic.DialAddrEarly(c.ctx, c.config.RemoteAddresses[c.currentRemoteAddrIndex], c.config.TlsConfig, c.config.QuicConfig)
 		if err != nil {
 			panic(fmt.Errorf("failed to establish connection: %w", err))
 		}
 	} else {
 		var err error
-		connection, err = quic.DialAddr(c.ctx, c.config.RemoteAddress, c.config.TlsConfig, c.config.QuicConfig)
+		connection, err = quic.DialAddr(c.ctx, c.config.RemoteAddresses[c.currentRemoteAddrIndex], c.config.TlsConfig, c.config.QuicConfig)
 		if err != nil {
 			panic(fmt.Errorf("failed to establish connection: %w", err))
 		}
@@ -106,6 +112,17 @@ func Run(conf *Config) {
 
 	c.conn = connection
 
+	go func() {
+		err := c.Run()
+		if err != nil {
+			panic(err)
+		}
+	}()
+
+	return c
+}
+
+func (c *client) Run() error {
 	//TODO extract somehow from connection tracer
 	c.state.SetEstablishmentTime()
 	if c.qlog != nil {
@@ -117,16 +134,19 @@ func Run(conf *Config) {
 		c.qlog.RecordEventAtTime(c.state.HandshakeConfirmedTime(), common.HandshakeConfirmedEvent{})
 	}()
 
-	// close gracefully on interrupt (CTRL+C)
-	intChan := make(chan os.Signal, 1)
-	signal.Notify(intChan, os.Interrupt)
-	go func() {
-		<-intChan
-		_ = connection.CloseWithError(quic.ApplicationErrorCode(quic.NoError), "client_closed")
-		os.Exit(0)
-	}()
+	if len(c.config.RemoteAddresses) > 0 && c.config.NextRemoteAddrAfter != 0 {
+		go func() {
+			for {
+				time.Sleep(c.config.NextRemoteAddrAfter)
+				err := c.UseNextRemoteAddr()
+				if err != nil {
+					panic(fmt.Errorf("failed to update remote address: %w", err))
+				}
+			}
+		}()
+	}
 
-	stream, err := connection.OpenStream()
+	stream, err := c.conn.OpenStream()
 	if err != nil {
 		panic(fmt.Errorf("failed to open stream: %w", err))
 	}
@@ -189,6 +209,7 @@ func Run(conf *Config) {
 			}
 		}()
 
+		// close gracefully on interrupt (CTRL+C)
 		intChan := make(chan os.Signal, 1)
 		signal.Notify(intChan, os.Interrupt, syscall.SIGTERM, os.Kill)
 		go func() {
@@ -210,6 +231,7 @@ func Run(conf *Config) {
 	}
 
 	c.Close()
+	return nil
 }
 
 func (c *client) report(state *common.State, total bool) {
@@ -314,4 +336,19 @@ func (c *client) CloseWithError(err error) {
 
 func (c *client) Close() {
 	c.CloseWithError(nil)
+}
+
+func (c *client) UseNextRemoteAddr() error {
+	nextIndex := (c.currentRemoteAddrIndex + 1) % len(c.config.RemoteAddresses)
+	nextAddrStr := c.config.RemoteAddresses[nextIndex]
+	nextAddr, err := net.ResolveUDPAddr("udp", nextAddrStr)
+	if err != nil {
+		return err
+	}
+	err = c.conn.UpdateRemoteAddr(*nextAddr, false, true)
+	if err != nil {
+		return err
+	}
+	c.currentRemoteAddrIndex = nextIndex
+	return nil
 }

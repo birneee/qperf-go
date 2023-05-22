@@ -3,7 +3,6 @@ package common
 import (
 	"context"
 	"crypto/tls"
-	"github.com/quic-go/qtls-go1-20"
 )
 
 type SingleSessionCache struct {
@@ -13,7 +12,7 @@ type SingleSessionCache struct {
 	session            *tls.ClientSessionState
 }
 
-var _ qtls.ClientSessionCache = (*SingleSessionCache)(nil)
+var _ tls.ClientSessionCache = (*SingleSessionCache)(nil)
 
 func (s *SingleSessionCache) Get(sessionKey string) (session *tls.ClientSessionState, ok bool) {
 	select {

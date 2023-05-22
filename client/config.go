@@ -38,11 +38,13 @@ type Config struct {
 	// output path of qlog file. {odcid} is substituted.
 	QlogPathTemplate  string
 	QlogConfig        *qlog2.Config
-	RemoteAddress     string
+	RemoteAddresses   []string
 	TlsConfig         *tls.Config
 	ReportLostPackets bool
 	ReportMaxRTT      bool
 	QuicConfig        *quic.Config
+	// if 0, address will not be updated
+	NextRemoteAddrAfter time.Duration
 }
 
 func (c *Config) Populate() *Config {
