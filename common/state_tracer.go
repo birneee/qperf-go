@@ -3,6 +3,7 @@ package common
 import (
 	"context"
 	"github.com/quic-go/quic-go/logging"
+	"time"
 )
 
 type StateTracer struct {
@@ -50,9 +51,26 @@ func (n StateConnectionTracer) ReceivedShortHeaderPacket(header *logging.ShortHe
 	}
 }
 
-func (n StateConnectionTracer) SentPacket(ext *logging.ExtendedHeader, bytes logging.ByteCount, ack *logging.AckFrame, frames []logging.Frame) {
+func (n StateConnectionTracer) SentLongHeaderPacket(_ *logging.ExtendedHeader, _ logging.ByteCount, _ *logging.AckFrame, frames []logging.Frame) {
 	for _, frame := range frames {
 		switch frame := frame.(type) {
+		case *logging.StreamFrame:
+			if frame.Offset == 0 {
+				n.State.MaybeSetFirstByteSent()
+			}
+		case *logging.DatagramFrame:
+			n.State.AddSentDatagramBytes(frame.Length)
+		}
+	}
+}
+
+func (n StateConnectionTracer) SentShortHeaderPacket(_ *logging.ShortHeader, _ logging.ByteCount, _ *logging.AckFrame, frames []logging.Frame) {
+	for _, frame := range frames {
+		switch frame := frame.(type) {
+		case *logging.StreamFrame:
+			if frame.Offset == 0 {
+				n.State.MaybeSetFirstByteSent()
+			}
 		case *logging.DatagramFrame:
 			n.State.AddSentDatagramBytes(frame.Length)
 		}
@@ -65,4 +83,11 @@ func (n StateConnectionTracer) UpdatedMetrics(rttStats *logging.RTTStats, cwnd, 
 
 func (n StateConnectionTracer) LostPacket(encLevel logging.EncryptionLevel, pn logging.PacketNumber, reason logging.PacketLossReason) {
 	n.State.AddLostPackets(1)
+}
+
+func (n StateConnectionTracer) UpdatedKeyFromTLS(encLevel logging.EncryptionLevel, _ logging.Perspective) {
+	if encLevel == logging.Encryption1RTT {
+		now := time.Now()
+		n.State.SetHandshakeCompletedTime(now)
+	}
 }

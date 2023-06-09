@@ -2,9 +2,9 @@ package main
 
 import (
 	"crypto/tls"
+	"encoding/base64"
 	"fmt"
 	"github.com/urfave/cli/v2"
-	"net"
 	"os"
 	"qperf-go/client"
 	"qperf-go/common"
@@ -49,11 +49,13 @@ func clientCommand(config *client.Config) *cli.Command {
 				Aliases: []string{
 					"ql",
 				},
-				Usage:      "verbosity of qlog output. e.g. info, full",
+				Usage:      "verbosity of qlog output. e.g. none, info, full",
 				Value:      "info",
 				HasBeenSet: true,
 				Action: func(context *cli.Context, s string) error {
 					switch s {
+					case "none":
+						config.QlogConfig.ExcludeEventsByDefault = true
 					case "info":
 						config.QlogConfig.ExcludeEventsByDefault = true
 						config.QlogConfig.SetIncludedEvents(common.QlogLevelInfoEvents)
@@ -205,6 +207,27 @@ func clientCommand(config *client.Config) *cli.Command {
 					return nil
 				},
 			},
+			&cli.BoolFlag{
+				Name: "reconnect",
+				Aliases: []string{
+					"r",
+				},
+				Usage: "try reconnecting to server on QUIC idle timeout or stateless reset",
+				Value: false,
+				Action: func(context *cli.Context, b bool) error {
+					config.ReconnectOnTimeoutOrReset = b
+					return nil
+				},
+			},
+			&cli.BoolFlag{
+				Name:  "min-timeout",
+				Usage: "use the minimum idle timeout of 3 PTOs (RFC 9000 10.1)",
+				Value: false,
+				Action: func(context *cli.Context, b bool) error {
+					config.QuicConfig.MaxIdleTimeout = time.Nanosecond
+					return nil
+				},
+			},
 		},
 		Action: func(c *cli.Context) error {
 			if !config.ReceiveStream && !config.SendStream && !config.ReceiveDatagram && !config.SendDatagram {
@@ -218,7 +241,8 @@ func clientCommand(config *client.Config) *cli.Command {
 			config.TimeToFirstByteOnly = c.Bool("ttfb")
 			config.ReportInterval = time.Duration(c.Float64("report-interval") * float64(time.Second))
 			config.LogPrefix = c.String("log-prefix")
-			client.Run(config)
+			client := client.Dial(config)
+			<-client.Context().Done()
 			return nil
 		},
 	}
@@ -249,11 +273,13 @@ func serverCommand(config *server.Config) *cli.Command {
 			},
 			&cli.StringFlag{
 				Name:       "qlog-level",
-				Usage:      "verbosity of qlog output. e.g. info, full",
+				Usage:      "verbosity of qlog output. e.g. none, info, full",
 				Value:      "info",
 				HasBeenSet: true,
 				Action: func(context *cli.Context, s string) error {
 					switch s {
+					case "none":
+						config.QlogConfig.ExcludeEventsByDefault = true
 					case "info":
 						config.QlogConfig.ExcludeEventsByDefault = true
 						config.QlogConfig.SetIncludedEvents(common.QlogLevelInfoEvents)
@@ -319,6 +345,22 @@ func serverCommand(config *server.Config) *cli.Command {
 				Usage: "the prefix of the command line output",
 				Value: "",
 			},
+			&cli.StringFlag{
+				Name:  "session-ticket-key",
+				Usage: "TLS session ticket key used for 0-RTT; value must be 32 byte and base64 encoded; if not set a random key is generated",
+				Value: "",
+				Action: func(ctx *cli.Context, s string) error {
+					key, err := base64.StdEncoding.DecodeString(s)
+					if err != nil {
+						return fmt.Errorf("failed to parse session ticket key: %s", err)
+					}
+					if len(key) != 32 {
+						return fmt.Errorf("failed to parse session ticket key: must be 32 byte")
+					}
+					config.TlsConfig.SetSessionTicketKeys([][32]byte{([32]byte)(key)})
+					return nil
+				},
+			},
 		},
 		Action: func(c *cli.Context) error {
 			if config.TlsConfig.Certificates == nil {
@@ -330,13 +372,11 @@ func serverCommand(config *server.Config) *cli.Command {
 
 			config.QuicConfig.MaxConnectionReceiveWindow = common.Max(config.QuicConfig.InitialConnectionReceiveWindow, config.QuicConfig.MaxConnectionReceiveWindow)
 
-			server.Run(net.UDPAddr{
-				IP:   net.ParseIP(c.String("addr")),
-				Port: c.Int("port"),
-			},
+			server := server.Listen(fmt.Sprintf("%s:%d", c.String("addr"), c.Int("port")),
 				c.String("log-prefix"),
 				config,
 			)
+			<-server.Context().Done()
 			return nil
 		},
 	}

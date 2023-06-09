@@ -18,8 +18,8 @@ type Config struct {
 }
 
 type eventKey struct {
-	category string
-	name     string
+	Category string
+	Name     string
 }
 
 func (c *Config) SetIncludedEvents(includedEvents map[string]bool) {
@@ -28,12 +28,12 @@ func (c *Config) SetIncludedEvents(includedEvents map[string]bool) {
 		parts := strings.Split(stringKey, ":")
 		category := parts[0]
 		name := parts[1]
-		c.IncludedEvents[eventKey{category: category, name: name}] = value
+		c.IncludedEvents[eventKey{Category: category, Name: name}] = value
 	}
 }
 
 func (c *Config) Included(category string, name string) bool {
-	if included, ok := c.IncludedEvents[eventKey{category: category, name: name}]; ok {
+	if included, ok := c.IncludedEvents[eventKey{Category: category, Name: name}]; ok {
 		return included
 	}
 	return !c.ExcludeEventsByDefault

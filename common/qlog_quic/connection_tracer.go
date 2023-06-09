@@ -17,15 +17,13 @@ type QlogWriterConnectionTracer interface {
 }
 
 type connectionTracer struct {
-	qlogWriter                    qlog.QlogWriter
-	odcid                         string
-	perspective                   logging.Perspective
-	lastMetrics                   *metrics
-	groupID                       string
-	fastPathIncludePacketReceived bool
-	fastPathIncludePacketSent     bool
-	fastPathIncludeMetricsUpdated bool
-	fastPathIncludeLossTimerSet   bool
+	qlogWriter                 qlog.QlogWriter
+	closeQlogWriterOnQuicClose bool
+	odcid                      string
+	perspective                logging.Perspective
+	lastMetrics                *metrics
+	groupID                    string
+	config                     config
 }
 
 var _ logging.ConnectionTracer = &connectionTracer{}
@@ -34,28 +32,27 @@ var _ QlogWriterConnectionTracer = &connectionTracer{}
 // NewTracer creates a new tracer to record a qlog for a connection.
 func NewTracer(qlogWriter qlog.QlogWriter) func(ctx context.Context, p logging.Perspective, id logging.ConnectionID) logging.ConnectionTracer {
 	return func(ctx context.Context, p logging.Perspective, id logging.ConnectionID) logging.ConnectionTracer {
-		return NewConnectionTracer(qlogWriter, p, id)
+		return NewConnectionTracer(qlogWriter, p, id, false)
 	}
 }
 
 // NewConnectionTracer creates a new tracer to record a qlog for a connection.
-func NewConnectionTracer(qlogWriter qlog.QlogWriter, p logging.Perspective, odcid logging.ConnectionID) logging.ConnectionTracer {
+func NewConnectionTracer(qlogWriter qlog.QlogWriter, p logging.Perspective, odcid logging.ConnectionID, closeQlogWriterOnQuicClose bool) logging.ConnectionTracer {
 	t := &connectionTracer{
-		qlogWriter:  qlogWriter,
-		perspective: p,
-		odcid:       odcid.String(),
-		groupID:     odcid.String(),
-		//TODO add more fast paths for performance critical events
-		fastPathIncludePacketReceived: qlogWriter.Includes(eventPacketReceived{}.Category(), eventPacketReceived{}.Name()),
-		fastPathIncludePacketSent:     qlogWriter.Includes(eventPacketSent{}.Category(), eventPacketSent{}.Name()),
-		fastPathIncludeMetricsUpdated: qlogWriter.Includes(eventMetricsUpdated{}.Category(), eventMetricsUpdated{}.Name()),
-		fastPathIncludeLossTimerSet:   qlogWriter.Includes(eventLossTimerSet{}.Category(), eventLossTimerSet{}.Name()),
+		qlogWriter:                 qlogWriter,
+		closeQlogWriterOnQuicClose: closeQlogWriterOnQuicClose,
+		perspective:                p,
+		odcid:                      odcid.String(),
+		groupID:                    odcid.String(),
 	}
+	t.config.ApplyConf(qlogWriter.Config())
 	return t
 }
 
 func (t *connectionTracer) Close() {
-	// do nothing
+	if t.closeQlogWriterOnQuicClose {
+		t.qlogWriter.Close()
+	}
 }
 
 func (t *connectionTracer) recordEvent(eventTime time.Time, details qlog.EventDetails) {
@@ -67,6 +64,9 @@ func (t *connectionTracer) QlogWriter() qlog.QlogWriter {
 }
 
 func (t *connectionTracer) StartedConnection(local, remote net.Addr, srcConnID, destConnID logging.ConnectionID) {
+	if !t.config.LogTransportConnectionStarted {
+		return
+	}
 	// ignore this event if we're not dealing with UDP addresses here
 	localAddr, ok := local.(*net.UDPAddr)
 	if !ok {
@@ -87,6 +87,9 @@ func (t *connectionTracer) StartedConnection(local, remote net.Addr, srcConnID, 
 }
 
 func (t *connectionTracer) NegotiatedVersion(chosen logging.VersionNumber, client, server []logging.VersionNumber) {
+	if !t.config.LogTransportVersionInformation {
+		return
+	}
 	var clientVersions, serverVersions []versionNumber
 	if len(client) > 0 {
 		clientVersions = make([]versionNumber, len(client))
@@ -110,20 +113,32 @@ func (t *connectionTracer) NegotiatedVersion(chosen logging.VersionNumber, clien
 }
 
 func (t *connectionTracer) ClosedConnection(e error) {
+	if !t.config.LogTransportConnectionClosed {
+		return
+	}
 	//t.mutex.Lock()
 	t.recordEvent(time.Now(), &eventConnectionClosed{e: e})
 	//t.mutex.Unlock()
 }
 
 func (t *connectionTracer) SentTransportParameters(tp *logging.TransportParameters) {
+	if !t.config.LogTransportParametersSet {
+		return
+	}
 	t.recordTransportParameters(t.perspective, tp)
 }
 
 func (t *connectionTracer) ReceivedTransportParameters(tp *logging.TransportParameters) {
+	if !t.config.LogTransportParametersSet {
+		return
+	}
 	t.recordTransportParameters(t.perspective.Opposite(), tp)
 }
 
 func (t *connectionTracer) RestoredTransportParameters(tp *logging.TransportParameters) {
+	if !t.config.LogTransportParametersRestored {
+		return
+	}
 	ev := t.toTransportParameters(tp)
 	ev.Restore = true
 
@@ -184,13 +199,13 @@ func (t *connectionTracer) SentLongHeaderPacket(hdr *logging.ExtendedHeader, pac
 }
 
 func (t *connectionTracer) SentShortHeaderPacket(hdr *logging.ShortHeader, packetSize logging.ByteCount, ack *logging.AckFrame, frames []logging.Frame) {
-	if !t.fastPathIncludePacketSent {
-		return
-	}
 	t.sentPacket(*transformShortHeader(hdr), packetSize, 0, ack, frames)
 }
 
 func (t *connectionTracer) sentPacket(hdr gojay.MarshalerJSONObject, packetSize, payloadLen logging.ByteCount, ack *logging.AckFrame, frames []logging.Frame) {
+	if !t.config.LogTransportPacketSent {
+		return
+	}
 	numFrames := len(frames)
 	if ack != nil {
 		numFrames++
@@ -213,6 +228,9 @@ func (t *connectionTracer) sentPacket(hdr gojay.MarshalerJSONObject, packetSize,
 }
 
 func (t *connectionTracer) ReceivedLongHeaderPacket(hdr *logging.ExtendedHeader, packetSize logging.ByteCount, frames []logging.Frame) {
+	if !t.config.LogTransportPacketReceived {
+		return
+	}
 	fs := make([]frame, len(frames))
 	for i, f := range frames {
 		fs[i] = frame{Frame: f}
@@ -229,7 +247,7 @@ func (t *connectionTracer) ReceivedLongHeaderPacket(hdr *logging.ExtendedHeader,
 }
 
 func (t *connectionTracer) ReceivedShortHeaderPacket(hdr *logging.ShortHeader, packetSize logging.ByteCount, frames []logging.Frame) {
-	if !t.fastPathIncludePacketReceived {
+	if !t.config.LogTransportPacketReceived {
 		return
 	}
 	fs := make([]frame, len(frames))
@@ -248,6 +266,9 @@ func (t *connectionTracer) ReceivedShortHeaderPacket(hdr *logging.ShortHeader, p
 }
 
 func (t *connectionTracer) ReceivedRetry(hdr *logging.Header) {
+	if !t.config.LogTransportPacketReceived {
+		return
+	}
 	//t.mutex.Lock()
 	t.recordEvent(time.Now(), &eventRetryReceived{
 		Header: *transformHeader(hdr),
@@ -256,6 +277,9 @@ func (t *connectionTracer) ReceivedRetry(hdr *logging.Header) {
 }
 
 func (t *connectionTracer) ReceivedVersionNegotiationPacket(dest, src logging.ArbitraryLenConnectionID, versions []logging.VersionNumber) {
+	if !t.config.LogTransportPacketReceived {
+		return
+	}
 	ver := make([]versionNumber, len(versions))
 	for i, v := range versions {
 		ver[i] = versionNumber(v)
@@ -272,6 +296,9 @@ func (t *connectionTracer) ReceivedVersionNegotiationPacket(dest, src logging.Ar
 }
 
 func (t *connectionTracer) BufferedPacket(pt logging.PacketType, size logging.ByteCount) {
+	if !t.config.LogTransportPacketBuffered {
+		return
+	}
 	//t.mutex.Lock()
 	t.recordEvent(time.Now(), &eventPacketBuffered{
 		PacketType: pt,
@@ -281,6 +308,9 @@ func (t *connectionTracer) BufferedPacket(pt logging.PacketType, size logging.By
 }
 
 func (t *connectionTracer) DroppedPacket(pt logging.PacketType, size logging.ByteCount, reason logging.PacketDropReason) {
+	if !t.config.LogTransportPacketDropped {
+		return
+	}
 	//t.mutex.Lock()
 	t.recordEvent(time.Now(), &eventPacketDropped{
 		PacketType: pt,
@@ -291,7 +321,7 @@ func (t *connectionTracer) DroppedPacket(pt logging.PacketType, size logging.Byt
 }
 
 func (t *connectionTracer) UpdatedMetrics(rttStats *logging.RTTStats, cwnd, bytesInFlight logging.ByteCount, packetsInFlight int) {
-	if !t.fastPathIncludeMetricsUpdated {
+	if !t.config.LogRecoveryMetricsUpdated {
 		return
 	}
 	m := &metrics{
@@ -315,6 +345,9 @@ func (t *connectionTracer) UpdatedMetrics(rttStats *logging.RTTStats, cwnd, byte
 func (t *connectionTracer) AcknowledgedPacket(logging.EncryptionLevel, logging.PacketNumber) {}
 
 func (t *connectionTracer) LostPacket(encLevel logging.EncryptionLevel, pn logging.PacketNumber, lossReason logging.PacketLossReason) {
+	if !t.config.LogRecoveryPacketLost {
+		return
+	}
 	//t.mutex.Lock()
 	t.recordEvent(time.Now(), &eventPacketLost{
 		PacketType:   getPacketTypeFromEncryptionLevel(encLevel),
@@ -325,18 +358,27 @@ func (t *connectionTracer) LostPacket(encLevel logging.EncryptionLevel, pn loggi
 }
 
 func (t *connectionTracer) UpdatedCongestionState(state logging.CongestionState) {
+	if !t.config.LogRecoveryCongestionStateUpdated {
+		return
+	}
 	//t.mutex.Lock()
 	t.recordEvent(time.Now(), &eventCongestionStateUpdated{state: congestionState(state)})
 	//t.mutex.Unlock()
 }
 
 func (t *connectionTracer) UpdatedPTOCount(value uint32) {
+	if !t.config.LogRecoveryMetricsUpdated {
+		return
+	}
 	//t.mutex.Lock()
 	t.recordEvent(time.Now(), &eventUpdatedPTO{Value: value})
 	//t.mutex.Unlock()
 }
 
 func (t *connectionTracer) UpdatedKeyFromTLS(encLevel logging.EncryptionLevel, pers logging.Perspective) {
+	if !t.config.LogSecurityKeyUpdated {
+		return
+	}
 	//t.mutex.Lock()
 	t.recordEvent(time.Now(), &eventKeyUpdated{
 		Trigger: keyUpdateTLS,
@@ -346,6 +388,9 @@ func (t *connectionTracer) UpdatedKeyFromTLS(encLevel logging.EncryptionLevel, p
 }
 
 func (t *connectionTracer) UpdatedKey(generation logging.KeyPhase, remote bool) {
+	if !t.config.LogSecurityKeyUpdated {
+		return
+	}
 	trigger := keyUpdateLocal
 	if remote {
 		trigger = keyUpdateRemote
@@ -366,6 +411,9 @@ func (t *connectionTracer) UpdatedKey(generation logging.KeyPhase, remote bool) 
 }
 
 func (t *connectionTracer) DroppedEncryptionLevel(encLevel logging.EncryptionLevel) {
+	if !t.config.LogSecurityKeyDiscarded {
+		return
+	}
 	//t.mutex.Lock()
 	now := time.Now()
 	if encLevel == logging.Encryption0RTT {
@@ -378,6 +426,9 @@ func (t *connectionTracer) DroppedEncryptionLevel(encLevel logging.EncryptionLev
 }
 
 func (t *connectionTracer) DroppedKey(generation logging.KeyPhase) {
+	if !t.config.LogSecurityKeyDiscarded {
+		return
+	}
 	//t.mutex.Lock()
 	now := time.Now()
 	t.recordEvent(now, &eventKeyDiscarded{
@@ -392,7 +443,7 @@ func (t *connectionTracer) DroppedKey(generation logging.KeyPhase) {
 }
 
 func (t *connectionTracer) SetLossTimer(tt logging.TimerType, encLevel logging.EncryptionLevel, timeout time.Time) {
-	if !t.fastPathIncludeLossTimerSet {
+	if !t.config.LogRecoveryLossTimerUpdated {
 		return
 	}
 	//t.mutex.Lock()
@@ -406,6 +457,9 @@ func (t *connectionTracer) SetLossTimer(tt logging.TimerType, encLevel logging.E
 }
 
 func (t *connectionTracer) LossTimerExpired(tt logging.TimerType, encLevel logging.EncryptionLevel) {
+	if !t.config.LogRecoveryLossTimerUpdated {
+		return
+	}
 	//t.mutex.Lock()
 	t.recordEvent(time.Now(), &eventLossTimerExpired{
 		TimerType: timerType(tt),
@@ -415,6 +469,9 @@ func (t *connectionTracer) LossTimerExpired(tt logging.TimerType, encLevel loggi
 }
 
 func (t *connectionTracer) LossTimerCanceled() {
+	if !t.config.LogRecoveryLossTimerUpdated {
+		return
+	}
 	//t.mutex.Lock()
 	t.recordEvent(time.Now(), &eventLossTimerCanceled{})
 	//t.mutex.Unlock()

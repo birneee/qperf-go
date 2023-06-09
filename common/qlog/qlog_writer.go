@@ -19,6 +19,7 @@ type QlogWriter interface {
 	RecordEventWithTimeGroupODCID(details EventDetails, time time.Time, groupID string, odcid string)
 	Close()
 	Includes(category string, name string) bool
+	Config() Config
 }
 
 const eventChanSize = 50
@@ -33,6 +34,10 @@ type qlogWriter struct {
 	encodeErr  error
 	runStopped chan struct{}
 	config     *Config
+}
+
+func (w *qlogWriter) Config() Config {
+	return *w.config.Copy()
 }
 
 func (w *qlogWriter) Includes(category string, name string) bool {

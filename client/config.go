@@ -36,13 +36,14 @@ type Config struct {
 	SendDatagram        bool
 	ReceiveDatagram     bool
 	// output path of qlog file. {odcid} is substituted.
-	QlogPathTemplate  string
-	QlogConfig        *qlog2.Config
-	RemoteAddress     string
-	TlsConfig         *tls.Config
-	ReportLostPackets bool
-	ReportMaxRTT      bool
-	QuicConfig        *quic.Config
+	QlogPathTemplate          string
+	QlogConfig                *qlog2.Config
+	RemoteAddress             string
+	TlsConfig                 *tls.Config
+	ReportLostPackets         bool
+	ReportMaxRTT              bool
+	QuicConfig                *quic.Config
+	ReconnectOnTimeoutOrReset bool
 }
 
 func (c *Config) Populate() *Config {
