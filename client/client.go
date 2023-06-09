@@ -93,9 +93,14 @@ func Dial(conf *Config) Client {
 
 	go func() {
 		for {
-			err := c.runConn()
-			if err != nil {
-				panic(err)
+			select {
+			case <-c.qperfCtx.Done():
+				break
+			default:
+				err := c.runConn()
+				if err != nil {
+					panic(err)
+				}
 			}
 		}
 	}()
@@ -113,6 +118,7 @@ func Dial(conf *Config) Client {
 func (c *client) runConn() error {
 	c.state.ResetForReconnect()
 	quicCtx, cancelQuicCtx := context.WithCancel(c.qperfCtx)
+	defer cancelQuicCtx()
 	if c.config.Use0RTT {
 		var err error
 		c.conn, err = quic.DialAddrEarly(quicCtx, c.config.RemoteAddress, c.config.TlsConfig, c.config.QuicConfig)
@@ -203,7 +209,7 @@ func (c *client) runConn() error {
 			}
 		}()
 	}
-	<-c.conn.Context().Done()
+	<-quicCtx.Done()
 	return nil
 }
 
@@ -353,6 +359,8 @@ func (c *client) CloseWithError(err error) {
 	c.closeOnce.Do(func() {
 		if err != nil {
 			if _, ok := err.(*quic.IdleTimeoutError); ok {
+				// close regularly
+			} else if _, ok := err.(*quic.ApplicationError); ok {
 				// close regularly
 			} else {
 				c.logger.Errorf("close with error: %s", err)
