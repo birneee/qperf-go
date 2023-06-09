@@ -21,7 +21,6 @@ type qperfServerSession struct {
 	config       *Config
 }
 
-// restoredQuicStreams is nil when not restored from hquic state
 func newQperfConnection(quicConn quic.EarlyConnection, connectionID uint64, logger common.Logger, config *Config) (*qperfServerSession, error) {
 	s := &qperfServerSession{
 		quicConn:     quicConn,

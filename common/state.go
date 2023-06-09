@@ -10,22 +10,27 @@ import (
 type State struct {
 	mutex                      sync.Mutex
 	startTime                  time.Time
-	firstByteTime              time.Time
-	establishmentTime          time.Time
+	firstByteReceivedTime      time.Time
+	firstByteSentTime          time.Time
+	handshakeCompletedTime     time.Time
 	handshakeConfirmedTime     time.Time
-	totalReceivedBytes         uint64
+	totalReceivedStreamBytes   uint64
 	totalReceivedPackets       uint64
 	totalMinRTT                time.Duration
 	totalMaxRTT                time.Duration
 	totalPacketsLost           uint64
-	totalSentBytes             uint64
+	totalSentStreamBytes       uint64
 	totalReceivedDatagramBytes logging.ByteCount
 	totalSentDatagramBytes     logging.ByteCount
 	// contexts
+	handshakeCompletedCtx    context.Context
+	handshakeCompletedCancel context.CancelFunc
 	handshakeConfirmedCtx    context.Context
 	handshakeConfirmedCancel context.CancelFunc
 	firstByteReceivedCtx     context.Context
 	firstByteReceivedCancel  context.CancelFunc
+	firstByteSentCtx         context.Context
+	firstByteSentCancel      context.CancelFunc
 	// values below are reset
 	lastReportTime                time.Time
 	lastReportReceivedBytes       uint64
@@ -41,15 +46,15 @@ type State struct {
 
 func NewState() *State {
 	s := &State{}
-	s.handshakeConfirmedCtx, s.handshakeConfirmedCancel = context.WithCancel(context.Background())
-	s.firstByteReceivedCtx, s.firstByteReceivedCancel = context.WithCancel(context.Background())
+	s.resetContexts()
 	return s
 }
 
-func (s *State) AddReceivedBytes(receivedBytes uint64) {
+// AddReceivedStreamBytes does not call MaybeSetFirstByteReceived, must be called separately
+func (s *State) AddReceivedStreamBytes(receivedBytes uint64) {
 	s.mutex.Lock()
 	defer s.mutex.Unlock()
-	s.totalReceivedBytes += receivedBytes
+	s.totalReceivedStreamBytes += receivedBytes
 }
 
 func (s *State) AddReceivedPackets(receivedPackets uint64) {
@@ -63,22 +68,22 @@ func (s *State) GetAndResetReport() Report {
 	s.mutex.Lock()
 	defer s.mutex.Unlock()
 	report := Report{
-		ReceivedBytes:         logging.ByteCount(s.totalReceivedBytes - s.lastReportReceivedBytes),
+		ReceivedBytes:         logging.ByteCount(s.totalReceivedStreamBytes - s.lastReportReceivedBytes),
 		ReceivedPackets:       s.totalReceivedPackets - s.lastReportReceivedPackets,
 		TimeAggregated:        now.Sub(MaxTime([]time.Time{s.lastReportTime, s.startTime})),
 		MinRTT:                s.minRTT,
 		MaxRTT:                s.maxRTT,
 		SmoothedRTT:           s.smoothedRTT,
 		PacketsLost:           s.packetsLost,
-		SentBytes:             logging.ByteCount(s.totalSentBytes - s.lastReportSentBytes),
+		SentBytes:             logging.ByteCount(s.totalSentStreamBytes - s.lastReportSentBytes),
 		ReceivedDatagramBytes: s.intervalReceivedDatagramBytes,
 		SentDatagramBytes:     s.intervalSentDatagramBytes,
 	}
 	// reset
 	s.lastReportTime = now
-	s.lastReportReceivedBytes = s.totalReceivedBytes
+	s.lastReportReceivedBytes = s.totalReceivedStreamBytes
 	s.lastReportReceivedPackets = s.totalReceivedPackets
-	s.lastReportSentBytes = s.totalSentBytes
+	s.lastReportSentBytes = s.totalSentStreamBytes
 	s.minRTT = MaxDuration
 	s.maxRTT = MinDuration
 	s.smoothedRTT = -1
@@ -93,13 +98,13 @@ func (s *State) TotalReport() Report {
 	s.mutex.Lock()
 	defer s.mutex.Unlock()
 	report := Report{
-		ReceivedBytes:         logging.ByteCount(s.totalReceivedBytes),
+		ReceivedBytes:         logging.ByteCount(s.totalReceivedStreamBytes),
 		ReceivedPackets:       s.totalReceivedPackets,
 		TimeAggregated:        now.Sub(s.startTime),
 		MinRTT:                s.totalMinRTT,
 		MaxRTT:                s.totalMaxRTT,
 		PacketsLost:           s.totalPacketsLost,
-		SentBytes:             logging.ByteCount(s.totalSentBytes),
+		SentBytes:             logging.ByteCount(s.totalSentStreamBytes),
 		ReceivedDatagramBytes: s.totalReceivedDatagramBytes,
 		SentDatagramBytes:     s.totalSentDatagramBytes,
 	}
@@ -108,7 +113,7 @@ func (s *State) TotalReport() Report {
 
 func (s *State) Total() (receivedBytes uint64, receivedPackets uint64) {
 	s.mutex.Lock()
-	receivedBytes = s.totalReceivedBytes
+	receivedBytes = s.totalReceivedStreamBytes
 	receivedPackets = s.totalReceivedPackets
 	s.mutex.Unlock()
 	return
@@ -125,21 +130,16 @@ func (s *State) SetStartTime() {
 	s.startTime = time.Now()
 }
 
-func (s *State) FirstByteTime() time.Time {
+func (s *State) FirstByteReceivedTime() time.Time {
 	s.mutex.Lock()
 	defer s.mutex.Unlock()
-	return s.firstByteTime
+	return s.firstByteReceivedTime
 }
 
-func (s *State) SetEstablishmentTime() {
-	if !s.establishmentTime.IsZero() {
-		panic("already set")
-	}
-	s.establishmentTime = time.Now()
-}
-
-func (s *State) EstablishmentTime() time.Time {
-	return s.establishmentTime
+func (s *State) FirstByteSentTime() time.Time {
+	s.mutex.Lock()
+	defer s.mutex.Unlock()
+	return s.firstByteSentTime
 }
 
 func (s *State) GetStartTime() time.Time {
@@ -187,10 +187,21 @@ func (s *State) PacketsLost() uint64 {
 	return s.packetsLost
 }
 
+func (s *State) SetHandshakeCompletedTime(time time.Time) {
+	s.mutex.Lock()
+	defer s.mutex.Unlock()
+	s.handshakeCompletedTime = time
+	s.handshakeCompletedCancel()
+}
+
 func (s *State) SetHandshakeConfirmedTime() {
 	s.mutex.Lock()
 	defer s.mutex.Unlock()
 	s.handshakeConfirmedTime = time.Now()
+}
+
+func (s *State) AwaitHandshakeCompleted() {
+	<-s.handshakeCompletedCtx.Done()
 }
 
 func (s *State) AwaitHandshakeConfirmed() {
@@ -201,16 +212,27 @@ func (s *State) AwaitFirstByteReceived() {
 	<-s.firstByteReceivedCtx.Done()
 }
 
+func (s *State) AwaitFirstByteSent() {
+	<-s.firstByteSentCtx.Done()
+}
+
+func (s *State) HandshakeCompletedTime() time.Time {
+	s.mutex.Lock()
+	defer s.mutex.Unlock()
+	return s.handshakeCompletedTime
+}
+
 func (s *State) HandshakeConfirmedTime() time.Time {
 	s.mutex.Lock()
 	defer s.mutex.Unlock()
 	return s.handshakeConfirmedTime
 }
 
-func (s *State) AddSentBytes(u uint64) {
+// AddSentStreamBytes does not call MaybeSetFirstByteSent, must be called separately
+func (s *State) AddSentStreamBytes(u uint64) {
 	s.mutex.Lock()
 	defer s.mutex.Unlock()
-	s.totalSentBytes += u
+	s.totalSentStreamBytes += u
 }
 
 func (s *State) MaybeSetFirstByteReceived() {
@@ -221,9 +243,23 @@ func (s *State) MaybeSetFirstByteReceived() {
 
 // must only be called while holding the lock
 func (s *State) maybeSetFirstByteReceived() {
-	if s.firstByteTime.IsZero() {
-		s.firstByteTime = time.Now()
+	if s.firstByteReceivedTime.IsZero() {
+		s.firstByteReceivedTime = time.Now()
 		s.firstByteReceivedCancel()
+	}
+}
+
+func (s *State) MaybeSetFirstByteSent() {
+	s.mutex.Lock()
+	defer s.mutex.Unlock()
+	s.maybeSetFirstByteSent()
+}
+
+// must only be called while holding the lock
+func (s *State) maybeSetFirstByteSent() {
+	if s.firstByteSentTime.IsZero() {
+		s.firstByteSentTime = time.Now()
+		s.firstByteSentCancel()
 	}
 }
 
@@ -240,4 +276,22 @@ func (s *State) AddSentDatagramBytes(length logging.ByteCount) {
 	defer s.mutex.Unlock()
 	s.totalSentDatagramBytes += length
 	s.intervalSentDatagramBytes += length
+	s.maybeSetFirstByteSent()
+}
+
+func (s *State) ResetForReconnect() {
+	s.mutex.Lock()
+	defer s.mutex.Unlock()
+	s.resetContexts()
+	s.handshakeCompletedTime = time.Time{}
+	s.handshakeConfirmedTime = time.Time{}
+	s.firstByteSentTime = time.Time{}
+	s.firstByteReceivedTime = time.Time{}
+}
+
+func (s *State) resetContexts() {
+	s.handshakeCompletedCtx, s.handshakeCompletedCancel = context.WithCancel(context.Background())
+	s.handshakeConfirmedCtx, s.handshakeConfirmedCancel = context.WithCancel(context.Background())
+	s.firstByteReceivedCtx, s.firstByteReceivedCancel = context.WithCancel(context.Background())
+	s.firstByteSentCtx, s.firstByteSentCancel = context.WithCancel(context.Background())
 }

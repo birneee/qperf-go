@@ -49,7 +49,7 @@ func NewFileQlogTracer(filePathTemplate string, config *qlog.Config) func(ctx co
 			}
 			config.GroupID = config.ODCID
 			qlogWriter := qlog.NewQlogWriter(w, config)
-			return NewConnectionTracer(qlogWriter, p, odcid)
+			return NewConnectionTracer(qlogWriter, p, odcid, true)
 		}
 	} else {
 		// write to single qlog file

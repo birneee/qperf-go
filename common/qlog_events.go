@@ -45,6 +45,15 @@ func (t FirstAppDataReceivedEvent) Name() string                         { retur
 func (t FirstAppDataReceivedEvent) IsNil() bool                          { return true }
 func (t FirstAppDataReceivedEvent) MarshalJSONObject(enc *gojay.Encoder) {}
 
+type FirstAppDataSentEvent struct{}
+
+var _ qlog.EventDetails = &FirstAppDataSentEvent{}
+
+func (t FirstAppDataSentEvent) Category() string                     { return "qperf" }
+func (t FirstAppDataSentEvent) Name() string                         { return "first_app_data_sent" }
+func (t FirstAppDataSentEvent) IsNil() bool                          { return true }
+func (t FirstAppDataSentEvent) MarshalJSONObject(enc *gojay.Encoder) {}
+
 type ReportEvent struct {
 	Period                            time.Duration
 	StreamMegaBitsPerSecondReceived   *float32
