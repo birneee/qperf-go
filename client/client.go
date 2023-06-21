@@ -226,15 +226,18 @@ func (c *client) Run() error {
 	if c.config.TimeToFirstByteOnly {
 		c.state.AwaitFirstByteReceived()
 	} else {
+
+		endTime := c.state.StartTime().Add(c.config.ProbeTime)
+		endTimeChan := time.After(endTime.Sub(time.Now()))
+	loop:
 		for {
-			if time.Now().Sub(c.state.StartTime()) > c.config.ProbeTime {
-				break
-			}
 			select {
+			case <-endTimeChan:
+				break loop
 			case <-time.After(c.config.ReportInterval):
 				c.report(c.state, false)
 			case <-c.qperfCtx.Done():
-				break
+				break loop
 			}
 		}
 	}
