@@ -11,7 +11,7 @@ import (
 	"time"
 )
 
-type QlogWriter interface {
+type Writer interface {
 	RecordEvent(details EventDetails)
 	ReferenceTime() time.Time
 	RecordEventAtTime(time time.Time, details EventDetails)
@@ -42,7 +42,7 @@ func (w *qlogWriter) Includes(category string, name string) bool {
 	return w.config.Included(category, name)
 }
 
-func NewQlogWriter(wc io.WriteCloser, config *Config) QlogWriter {
+func NewQlogWriter(wc io.WriteCloser, config *Config) Writer {
 	config = config.Populate()
 	w := &qlogWriter{
 		w:             wc,

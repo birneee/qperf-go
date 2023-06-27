@@ -43,10 +43,9 @@ func (s streamType) String() string {
 type category = string
 
 const (
-	categoryConnectivity category = "connectivity"
-	categoryTransport             = "transport"
-	categorySecurity              = "security"
-	categoryRecovery              = "recovery"
+	categoryTransport = "transport"
+	categorySecurity  = "security"
+	categoryRecovery  = "recovery"
 )
 
 type versionNumber logging.VersionNumber

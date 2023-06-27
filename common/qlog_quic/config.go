@@ -6,10 +6,6 @@ import (
 	"reflect"
 )
 
-const (
-	QlogEventNameTransportConnectionStarted = "transport:connection_started"
-)
-
 type config struct {
 	LogTransportConnectionStarted     bool
 	LogTransportVersionInformation    bool

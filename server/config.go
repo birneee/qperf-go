@@ -4,8 +4,8 @@ import (
 	"crypto/tls"
 	"github.com/quic-go/quic-go"
 	"github.com/quic-go/quic-go/logging"
-	"qperf-go/common"
 	qlog2 "qperf-go/common/qlog"
+	"qperf-go/perf"
 	"runtime/debug"
 )
 
@@ -37,7 +37,7 @@ func (c *Config) Populate() *Config {
 		c.TlsConfig = &tls.Config{}
 	}
 	if c.TlsConfig.NextProtos == nil {
-		c.TlsConfig.NextProtos = []string{common.QperfALPN}
+		c.TlsConfig.NextProtos = []string{perf.ALPN}
 	}
 	if c.QlogConfig == nil {
 		c.QlogConfig = &qlog2.Config{}

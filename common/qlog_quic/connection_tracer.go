@@ -13,11 +13,11 @@ import (
 
 type QlogWriterConnectionTracer interface {
 	logging.ConnectionTracer
-	QlogWriter() qlog.QlogWriter
+	QlogWriter() qlog.Writer
 }
 
 type connectionTracer struct {
-	qlogWriter                 qlog.QlogWriter
+	qlogWriter                 qlog.Writer
 	closeQlogWriterOnQuicClose bool
 	odcid                      string
 	perspective                logging.Perspective
@@ -30,14 +30,14 @@ var _ logging.ConnectionTracer = &connectionTracer{}
 var _ QlogWriterConnectionTracer = &connectionTracer{}
 
 // NewTracer creates a new tracer to record a qlog for a connection.
-func NewTracer(qlogWriter qlog.QlogWriter) func(ctx context.Context, p logging.Perspective, id logging.ConnectionID) logging.ConnectionTracer {
+func NewTracer(qlogWriter qlog.Writer) func(ctx context.Context, p logging.Perspective, id logging.ConnectionID) logging.ConnectionTracer {
 	return func(ctx context.Context, p logging.Perspective, id logging.ConnectionID) logging.ConnectionTracer {
 		return NewConnectionTracer(qlogWriter, p, id, false)
 	}
 }
 
 // NewConnectionTracer creates a new tracer to record a qlog for a connection.
-func NewConnectionTracer(qlogWriter qlog.QlogWriter, p logging.Perspective, odcid logging.ConnectionID, closeQlogWriterOnQuicClose bool) logging.ConnectionTracer {
+func NewConnectionTracer(qlogWriter qlog.Writer, p logging.Perspective, odcid logging.ConnectionID, closeQlogWriterOnQuicClose bool) logging.ConnectionTracer {
 	t := &connectionTracer{
 		qlogWriter:                 qlogWriter,
 		closeQlogWriterOnQuicClose: closeQlogWriterOnQuicClose,
@@ -59,7 +59,7 @@ func (t *connectionTracer) recordEvent(eventTime time.Time, details qlog.EventDe
 	t.qlogWriter.RecordEventWithTimeGroupODCID(details, eventTime, t.groupID, t.odcid)
 }
 
-func (t *connectionTracer) QlogWriter() qlog.QlogWriter {
+func (t *connectionTracer) QlogWriter() qlog.Writer {
 	return t.qlogWriter
 }
 

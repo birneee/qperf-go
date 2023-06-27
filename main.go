@@ -9,6 +9,7 @@ import (
 	"qperf-go/client"
 	"qperf-go/common"
 	"qperf-go/common/qlog"
+	"qperf-go/perf"
 	"qperf-go/server"
 	"runtime/pprof"
 	"time"
@@ -22,10 +23,10 @@ func clientCommand(config *client.Config) *cli.Command {
 			&cli.StringFlag{
 				Name:     "remote-addr",
 				Aliases:  []string{"a"},
-				Usage:    fmt.Sprintf("address to connect to, in the form \"host:port\", default port %d if not specified.", common.DefaultQperfServerPort),
+				Usage:    fmt.Sprintf("address to connect to, in the form \"host:port\", default port %d if not specified.", perf.DefaultServerPort),
 				Required: true,
 				Action: func(ctx *cli.Context, s string) error {
-					config.RemoteAddress = common.AppendPortIfNotSpecified(s, common.DefaultQperfServerPort)
+					config.RemoteAddress = common.AppendPortIfNotSpecified(s, perf.DefaultServerPort)
 					return nil
 				},
 			},
@@ -140,26 +141,21 @@ func clientCommand(config *client.Config) *cli.Command {
 					return nil
 				},
 			},
-			&cli.StringFlag{
-				Name:  "log-prefix",
-				Usage: "the prefix of the command line output",
-				Value: "",
-			},
 			&cli.BoolFlag{
 				Name:  "receive-stream",
-				Usage: "stream data from server. Disable by --receive=0",
+				Usage: "stream infinite data from server. Disable by --receive-stream=0",
 				Value: false,
-				Action: func(context *cli.Context, b bool) error {
-					config.ReceiveStream = b
+				Action: func(ctx *cli.Context, b bool) error {
+					config.ReceiveInfiniteStream = b
 					return nil
 				},
 			},
 			&cli.BoolFlag{
 				Name:  "send-stream",
-				Usage: "stream data to server",
+				Usage: "stream infinite data to server. Disable by --send-stream=0",
 				Value: false,
-				Action: func(context *cli.Context, b bool) error {
-					config.SendStream = b
+				Action: func(ctx *cli.Context, b bool) error {
+					config.SendInfiniteStream = b
 					return nil
 				},
 			},
@@ -238,10 +234,61 @@ func clientCommand(config *client.Config) *cli.Command {
 					return nil
 				},
 			},
+			&cli.Uint64Flag{
+				Name:  "request-length",
+				Usage: "bytes sent per stream request",
+				Value: 0,
+				Action: func(context *cli.Context, v uint64) error {
+					config.RequestLength = v
+					return nil
+				},
+			},
+			&cli.Float64Flag{
+				Name:  "request-interval",
+				Usage: "milliseconds after which a new request is sent; 0 for a single request",
+				Value: 0,
+				Action: func(context *cli.Context, v float64) error {
+					config.RequestInterval = time.Duration(v * float64(time.Millisecond))
+					return nil
+				},
+			},
+			&cli.Uint64Flag{
+				Name:  "response-length",
+				Usage: "bytes received per stream response",
+				Value: 0,
+				Action: func(context *cli.Context, v uint64) error {
+					config.ResponseLength = v
+					return nil
+				},
+			},
+			&cli.Uint64Flag{
+				Name:  "response-delay",
+				Usage: "milliseconds that the server waits until responding to received requests",
+				Value: 0,
+				Action: func(context *cli.Context, v uint64) error {
+					config.ResponseDelay = time.Duration(v) * time.Millisecond
+					return nil
+				},
+			},
+			&cli.Float64Flag{
+				Name:       "deadline",
+				Usage:      "milliseconds after which to cancel sending the request and receiving its response",
+				Value:      float64(time.Hour / time.Millisecond),
+				HasBeenSet: true,
+				Action: func(context *cli.Context, v float64) error {
+					config.Deadline = time.Duration(v * float64(time.Millisecond))
+					return nil
+				},
+			},
 		},
 		Action: func(c *cli.Context) error {
-			if !config.ReceiveStream && !config.SendStream && !config.ReceiveDatagram && !config.SendDatagram {
-				config.ReceiveStream = true // receive stream if nothing else is specified
+			if !config.ReceiveInfiniteStream &&
+				!config.SendInfiniteStream &&
+				!config.ReceiveDatagram &&
+				!config.SendDatagram &&
+				config.RequestLength == 0 &&
+				config.ResponseLength == 0 {
+				config.ReceiveInfiniteStream = true // receive stream if nothing else is specified
 			}
 
 			config.QuicConfig.MaxStreamReceiveWindow = common.Max(config.QuicConfig.InitialStreamReceiveWindow, config.QuicConfig.MaxStreamReceiveWindow)
@@ -250,7 +297,6 @@ func clientCommand(config *client.Config) *cli.Command {
 
 			config.TimeToFirstByteOnly = c.Bool("ttfb")
 			config.ReportInterval = time.Duration(c.Float64("report-interval") * float64(time.Second))
-			config.LogPrefix = c.String("log-prefix")
 			client := client.Dial(config)
 			<-client.Context().Done()
 			return nil
@@ -271,7 +317,7 @@ func serverCommand(config *server.Config) *cli.Command {
 			&cli.UintFlag{
 				Name:  "port",
 				Usage: "port to listen on",
-				Value: common.DefaultQperfServerPort,
+				Value: perf.DefaultServerPort,
 			},
 			&cli.StringFlag{
 				Name:  "qlog",
@@ -360,11 +406,6 @@ func serverCommand(config *server.Config) *cli.Command {
 				},
 			},
 			&cli.StringFlag{
-				Name:  "log-prefix",
-				Usage: "the prefix of the command line output",
-				Value: "",
-			},
-			&cli.StringFlag{
 				Name:  "session-ticket-key",
 				Usage: "TLS session ticket key used for 0-RTT; value must be 32 byte and base64 encoded; if not set a random key is generated",
 				Value: "",
@@ -392,7 +433,6 @@ func serverCommand(config *server.Config) *cli.Command {
 			config.QuicConfig.MaxConnectionReceiveWindow = common.Max(config.QuicConfig.InitialConnectionReceiveWindow, config.QuicConfig.MaxConnectionReceiveWindow)
 
 			server := server.Listen(fmt.Sprintf("%s:%d", c.String("addr"), c.Int("port")),
-				c.String("log-prefix"),
 				config,
 			)
 			<-server.Context().Done()

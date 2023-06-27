@@ -22,37 +22,37 @@ type HandshakeCompletedEvent struct{}
 
 var _ qlog.EventDetails = &HandshakeCompletedEvent{}
 
-func (t HandshakeCompletedEvent) Category() string                     { return "qperf" }
-func (t HandshakeCompletedEvent) Name() string                         { return "handshake_completed" }
-func (t HandshakeCompletedEvent) IsNil() bool                          { return true }
-func (t HandshakeCompletedEvent) MarshalJSONObject(enc *gojay.Encoder) {}
+func (t HandshakeCompletedEvent) Category() string                   { return "qperf" }
+func (t HandshakeCompletedEvent) Name() string                       { return "handshake_completed" }
+func (t HandshakeCompletedEvent) IsNil() bool                        { return true }
+func (t HandshakeCompletedEvent) MarshalJSONObject(_ *gojay.Encoder) {}
 
 type HandshakeConfirmedEvent struct{}
 
 var _ qlog.EventDetails = &HandshakeConfirmedEvent{}
 
-func (t HandshakeConfirmedEvent) Category() string                     { return "qperf" }
-func (t HandshakeConfirmedEvent) Name() string                         { return "handshake_confirmed" }
-func (t HandshakeConfirmedEvent) IsNil() bool                          { return true }
-func (t HandshakeConfirmedEvent) MarshalJSONObject(enc *gojay.Encoder) {}
+func (t HandshakeConfirmedEvent) Category() string                   { return "qperf" }
+func (t HandshakeConfirmedEvent) Name() string                       { return "handshake_confirmed" }
+func (t HandshakeConfirmedEvent) IsNil() bool                        { return true }
+func (t HandshakeConfirmedEvent) MarshalJSONObject(_ *gojay.Encoder) {}
 
 type FirstAppDataReceivedEvent struct{}
 
 var _ qlog.EventDetails = &FirstAppDataReceivedEvent{}
 
-func (t FirstAppDataReceivedEvent) Category() string                     { return "qperf" }
-func (t FirstAppDataReceivedEvent) Name() string                         { return "first_app_data_received" }
-func (t FirstAppDataReceivedEvent) IsNil() bool                          { return true }
-func (t FirstAppDataReceivedEvent) MarshalJSONObject(enc *gojay.Encoder) {}
+func (t FirstAppDataReceivedEvent) Category() string                   { return "qperf" }
+func (t FirstAppDataReceivedEvent) Name() string                       { return "first_app_data_received" }
+func (t FirstAppDataReceivedEvent) IsNil() bool                        { return true }
+func (t FirstAppDataReceivedEvent) MarshalJSONObject(_ *gojay.Encoder) {}
 
 type FirstAppDataSentEvent struct{}
 
 var _ qlog.EventDetails = &FirstAppDataSentEvent{}
 
-func (t FirstAppDataSentEvent) Category() string                     { return "qperf" }
-func (t FirstAppDataSentEvent) Name() string                         { return "first_app_data_sent" }
-func (t FirstAppDataSentEvent) IsNil() bool                          { return true }
-func (t FirstAppDataSentEvent) MarshalJSONObject(enc *gojay.Encoder) {}
+func (t FirstAppDataSentEvent) Category() string                   { return "qperf" }
+func (t FirstAppDataSentEvent) Name() string                       { return "first_app_data_sent" }
+func (t FirstAppDataSentEvent) IsNil() bool                        { return true }
+func (t FirstAppDataSentEvent) MarshalJSONObject(_ *gojay.Encoder) {}
 
 type ReportEvent struct {
 	Period                            time.Duration
@@ -68,6 +68,8 @@ type ReportEvent struct {
 	DatagramMegaBitsPerSecondReceived *float32
 	DatagramMegaBitsPerSecondSent     *float32
 	StreamMegaBitsPerSecondSent       *float32
+	DeadlineExceededResponses         *uint64
+	ResponsesReceived                 *uint64
 }
 
 var _ qlog.EventDetails = &ReportEvent{}
@@ -111,6 +113,12 @@ func (t ReportEvent) MarshalJSONObject(enc *gojay.Encoder) {
 	}
 	if t.PacketsLost != nil {
 		enc.Uint64Key("packets_lost", *t.PacketsLost)
+	}
+	if t.ResponsesReceived != nil {
+		enc.Uint64Key("responses_received", *t.ResponsesReceived)
+	}
+	if t.DeadlineExceededResponses != nil {
+		enc.Uint64Key("deadline_exceeded", *t.DeadlineExceededResponses)
 	}
 	enc.Float32Key("period", float32(t.Period.Seconds()*1000))
 }

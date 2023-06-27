@@ -12,7 +12,8 @@ import (
 	qlog2 "qperf-go/common/qlog"
 	"qperf-go/common/qlog_app"
 	"qperf-go/common/qlog_quic"
-	"qperf-go/errors"
+	"qperf-go/perf"
+	"qperf-go/perf/perf_server"
 	"sync"
 	"syscall"
 )
@@ -24,18 +25,15 @@ type Server interface {
 }
 
 type server struct {
-	nextConnectionId uint64
-	logger           common.Logger
-	listener         *quic.EarlyListener
-	config           *Config
-	qlog             qlog2.QlogWriter
-	qlogTracer       func(ctx context.Context, perspective logging.Perspective, connectionID logging.ConnectionID) logging.ConnectionTracer
-	closeOnce        sync.Once
-	ctx              context.Context
-	cancelCtx        context.CancelFunc
-	mutex            sync.Mutex // for fields below
-	//TODO remove closed connections from map
-	connections []*qperfServerSession
+	listener    *quic.EarlyListener
+	config      *Config
+	qlog        qlog2.Writer
+	qlogTracer  func(ctx context.Context, perspective logging.Perspective, connectionID logging.ConnectionID) logging.ConnectionTracer
+	closeOnce   sync.Once
+	ctx         context.Context
+	cancelCtx   context.CancelFunc
+	mutex       sync.Mutex // for fields below
+	connections map[uint64]perf_server.Connection
 }
 
 func (s *server) Addr() net.Addr {
@@ -46,14 +44,13 @@ func (s *server) Context() context.Context {
 	return s.ctx
 }
 
-// Run server.
+// Listen starts server.
 // if proxyAddr is nil, no proxy is used.
-func Listen(addr string, logPrefix string, config *Config) Server {
-	addr = common.AppendPortIfNotSpecified(addr, common.DefaultQperfServerPort)
+func Listen(addr string, config *Config) Server {
+	addr = common.AppendPortIfNotSpecified(addr, perf.DefaultServerPort)
 	s := &server{
-		logger:           common.DefaultLogger.WithPrefix(logPrefix),
-		nextConnectionId: 0,
-		config:           config,
+		config:      config,
+		connections: map[uint64]perf_server.Connection{},
 	}
 	s.ctx, s.cancelCtx = context.WithCancel(context.Background())
 
@@ -108,8 +105,8 @@ func (s *server) Run() error {
 			return nil
 		}
 		switch alpn := quicConnection.ConnectionState().TLS.NegotiatedProtocol; alpn {
-		case common.QperfALPN:
-			s.acceptQperf(quicConnection)
+		case perf.ALPN:
+			s.acceptPerf(quicConnection)
 		default:
 			panic(fmt.Sprintf("unexpected ALPN: %s", alpn))
 		}
@@ -123,7 +120,7 @@ func (s *server) Close(err error) {
 		}
 		s.mutex.Lock()
 		for _, conn := range s.connections {
-			conn.quicConn.CloseWithError(errors.NoError, "no error")
+			conn.Close()
 		}
 		s.mutex.Unlock()
 		if s.listener != nil {
@@ -134,18 +131,19 @@ func (s *server) Close(err error) {
 	})
 }
 
-func (s *server) acceptQperf(quicConn quic.EarlyConnection) {
-	conn, err := newQperfConnection(
-		quicConn,
-		s.nextConnectionId,
-		s.logger.WithPrefix(fmt.Sprintf("connection %d", s.nextConnectionId)),
-		s.config,
-	)
-	if err != nil {
-		panic(err)
-	}
+func (s *server) acceptPerf(quicConn quic.EarlyConnection) {
+	perfConn := perf_server.NewConnection(quicConn)
+	s.addConnectionToList(perfConn)
+}
+
+func (s *server) addConnectionToList(perfConn perf_server.Connection) {
 	s.mutex.Lock()
-	s.connections = append(s.connections, conn)
+	s.connections[perfConn.TracingID()] = perfConn
 	s.mutex.Unlock()
-	s.nextConnectionId += 1
+	go func() {
+		<-perfConn.Context().Done()
+		s.mutex.Lock()
+		delete(s.connections, perfConn.TracingID())
+		s.mutex.Unlock()
+	}()
 }

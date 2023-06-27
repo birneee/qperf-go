@@ -8,20 +8,22 @@ import (
 )
 
 type State struct {
-	mutex                      sync.Mutex
-	startTime                  time.Time
-	firstByteReceivedTime      time.Time
-	firstByteSentTime          time.Time
-	handshakeCompletedTime     time.Time
-	handshakeConfirmedTime     time.Time
-	totalReceivedStreamBytes   uint64
-	totalReceivedPackets       uint64
-	totalMinRTT                time.Duration
-	totalMaxRTT                time.Duration
-	totalPacketsLost           uint64
-	totalSentStreamBytes       uint64
-	totalReceivedDatagramBytes logging.ByteCount
-	totalSentDatagramBytes     logging.ByteCount
+	mutex                          sync.Mutex
+	startTime                      time.Time
+	firstByteReceivedTime          time.Time
+	firstByteSentTime              time.Time
+	handshakeCompletedTime         time.Time
+	handshakeConfirmedTime         time.Time
+	totalReceivedStreamBytes       uint64
+	totalReceivedPackets           uint64
+	totalMinRTT                    time.Duration
+	totalMaxRTT                    time.Duration
+	totalPacketsLost               uint64
+	totalSentStreamBytes           uint64
+	totalReceivedDatagramBytes     logging.ByteCount
+	totalSentDatagramBytes         logging.ByteCount
+	totalReceivedResponses         uint64
+	totalDeadlineExceededResponses uint64
 	// contexts
 	handshakeCompletedCtx    context.Context
 	handshakeCompletedCancel context.CancelFunc
@@ -42,6 +44,8 @@ type State struct {
 	lastReportSentBytes           uint64
 	intervalReceivedDatagramBytes logging.ByteCount
 	intervalSentDatagramBytes     logging.ByteCount
+	receivedResponses             uint64
+	deadlineExceededResponses     uint64
 }
 
 func NewState() *State {
@@ -68,16 +72,18 @@ func (s *State) GetAndResetReport() Report {
 	s.mutex.Lock()
 	defer s.mutex.Unlock()
 	report := Report{
-		ReceivedBytes:         logging.ByteCount(s.totalReceivedStreamBytes - s.lastReportReceivedBytes),
-		ReceivedPackets:       s.totalReceivedPackets - s.lastReportReceivedPackets,
-		TimeAggregated:        now.Sub(MaxTime([]time.Time{s.lastReportTime, s.startTime})),
-		MinRTT:                s.minRTT,
-		MaxRTT:                s.maxRTT,
-		SmoothedRTT:           s.smoothedRTT,
-		PacketsLost:           s.packetsLost,
-		SentBytes:             logging.ByteCount(s.totalSentStreamBytes - s.lastReportSentBytes),
-		ReceivedDatagramBytes: s.intervalReceivedDatagramBytes,
-		SentDatagramBytes:     s.intervalSentDatagramBytes,
+		ReceivedBytes:             logging.ByteCount(s.totalReceivedStreamBytes - s.lastReportReceivedBytes),
+		ReceivedPackets:           s.totalReceivedPackets - s.lastReportReceivedPackets,
+		TimeAggregated:            now.Sub(MaxTime([]time.Time{s.lastReportTime, s.startTime})),
+		MinRTT:                    s.minRTT,
+		MaxRTT:                    s.maxRTT,
+		SmoothedRTT:               s.smoothedRTT,
+		PacketsLost:               s.packetsLost,
+		SentBytes:                 logging.ByteCount(s.totalSentStreamBytes - s.lastReportSentBytes),
+		ReceivedDatagramBytes:     s.intervalReceivedDatagramBytes,
+		SentDatagramBytes:         s.intervalSentDatagramBytes,
+		ReceivedResponses:         s.receivedResponses,
+		DeadlineExceededResponses: s.deadlineExceededResponses,
 	}
 	// reset
 	s.lastReportTime = now
@@ -90,6 +96,8 @@ func (s *State) GetAndResetReport() Report {
 	s.packetsLost = 0
 	s.intervalReceivedDatagramBytes = 0
 	s.intervalSentDatagramBytes = 0
+	s.receivedResponses = 0
+	s.deadlineExceededResponses = 0
 	return report
 }
 
@@ -98,15 +106,17 @@ func (s *State) TotalReport() Report {
 	s.mutex.Lock()
 	defer s.mutex.Unlock()
 	report := Report{
-		ReceivedBytes:         logging.ByteCount(s.totalReceivedStreamBytes),
-		ReceivedPackets:       s.totalReceivedPackets,
-		TimeAggregated:        now.Sub(s.startTime),
-		MinRTT:                s.totalMinRTT,
-		MaxRTT:                s.totalMaxRTT,
-		PacketsLost:           s.totalPacketsLost,
-		SentBytes:             logging.ByteCount(s.totalSentStreamBytes),
-		ReceivedDatagramBytes: s.totalReceivedDatagramBytes,
-		SentDatagramBytes:     s.totalSentDatagramBytes,
+		ReceivedBytes:             logging.ByteCount(s.totalReceivedStreamBytes),
+		ReceivedPackets:           s.totalReceivedPackets,
+		TimeAggregated:            now.Sub(s.startTime),
+		MinRTT:                    s.totalMinRTT,
+		MaxRTT:                    s.totalMaxRTT,
+		PacketsLost:               s.totalPacketsLost,
+		SentBytes:                 logging.ByteCount(s.totalSentStreamBytes),
+		ReceivedDatagramBytes:     s.totalReceivedDatagramBytes,
+		SentDatagramBytes:         s.totalSentDatagramBytes,
+		ReceivedResponses:         s.totalReceivedResponses,
+		DeadlineExceededResponses: s.totalDeadlineExceededResponses,
 	}
 	return report
 }
@@ -294,4 +304,30 @@ func (s *State) resetContexts() {
 	s.handshakeConfirmedCtx, s.handshakeConfirmedCancel = context.WithCancel(context.Background())
 	s.firstByteReceivedCtx, s.firstByteReceivedCancel = context.WithCancel(context.Background())
 	s.firstByteSentCtx, s.firstByteSentCancel = context.WithCancel(context.Background())
+}
+
+func (s *State) SetTotalReceiveStreamBytes(value uint64) {
+	s.mutex.Lock()
+	defer s.mutex.Unlock()
+	s.totalReceivedStreamBytes = value
+}
+
+func (s *State) SetTotalSentStreamBytes(value uint64) {
+	s.mutex.Lock()
+	defer s.mutex.Unlock()
+	s.totalSentStreamBytes = value
+}
+
+func (s *State) AddReceivedResponses(i uint64) {
+	s.mutex.Lock()
+	defer s.mutex.Unlock()
+	s.totalReceivedResponses += i
+	s.receivedResponses += i
+}
+
+func (s *State) AddDeadlineExceededResponses(i uint64) {
+	s.mutex.Lock()
+	defer s.mutex.Unlock()
+	s.totalDeadlineExceededResponses += i
+	s.deadlineExceededResponses += i
 }
