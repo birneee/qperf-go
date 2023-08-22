@@ -25,7 +25,7 @@ func isFilePathTemplate(filePathTemplate string) bool {
 	return strings.Contains(filePathTemplate, odcidTemplate)
 }
 
-// NewFileQlogTracer creates new connection tracers using QlogWriter.
+// NewFileQlogTracer creates new connection tracers using Writer.
 // "{odcid}" in the filePathTemplate is replaced by the ODCID of the QUIC connection.
 // If the filePathTemplate contains "{odcid}" multiple files are created.
 // Otherwise, everything is written to a single file.
@@ -49,7 +49,7 @@ func NewFileQlogTracer(filePathTemplate string, config *qlog.Config) func(ctx co
 			}
 			config.GroupID = config.ODCID
 			qlogWriter := qlog.NewQlogWriter(w, config)
-			return NewConnectionTracer(qlogWriter, p, odcid)
+			return NewConnectionTracer(qlogWriter, p, odcid, true)
 		}
 	} else {
 		// write to single qlog file

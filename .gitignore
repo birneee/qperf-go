@@ -1,3 +1,4 @@
 /.idea
 /qperf-go
 *.qlog
+*.prof

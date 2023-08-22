@@ -6,40 +6,47 @@ import (
 	"fmt"
 	"github.com/quic-go/quic-go"
 	"github.com/quic-go/quic-go/logging"
-	"io"
 	"os"
 	"os/signal"
 	"qperf-go/common"
 	qlog2 "qperf-go/common/qlog"
 	"qperf-go/common/qlog_app"
 	"qperf-go/common/qlog_quic"
-	"qperf-go/control_frames"
-	"qperf-go/errors"
+	"qperf-go/perf"
+	"qperf-go/perf/perf_client"
 	"sync"
 	"syscall"
 	"time"
 )
 
-type client struct {
-	conn      quic.Connection
-	state     *common.State
-	logger    common.Logger
-	config    *Config
-	qlog      qlog2.QlogWriter
-	closeOnce sync.Once
-	ctx       context.Context
-	cancelCtx context.CancelFunc
+type Client interface {
+	Context() context.Context
 }
 
-// Run client
-func Run(conf *Config) {
-	c := client{
-		state:  common.NewState(),
-		config: conf,
-	}
-	c.ctx, c.cancelCtx = context.WithCancel(context.Background())
+type client struct {
+	perfClient perf_client.Client
+	state      *common.State
+	config     *Config
+	qlog       qlog2.Writer
+	closeOnce  sync.Once
+	// closed when client is stopping and doing some final output and cleanup
+	stopping       chan struct{}
+	qperfCtx       context.Context
+	cancelQperfCtx context.CancelFunc
+}
 
-	c.logger = common.DefaultLogger.WithPrefix(c.config.LogPrefix)
+func (c *client) Context() context.Context {
+	return c.qperfCtx
+}
+
+// Dial starts a new client
+func Dial(conf *Config) Client {
+	c := &client{
+		state:    common.NewState(),
+		config:   conf,
+		stopping: make(chan struct{}),
+	}
+	c.qperfCtx, c.cancelQperfCtx = context.WithCancel(context.Background())
 
 	var tracers []func(ctx context.Context, perspective logging.Perspective, connectionID logging.ConnectionID) logging.ConnectionTracer
 
@@ -50,7 +57,7 @@ func Run(conf *Config) {
 		tracers = append(tracers, qlog_quic.NewTracer(c.qlog))
 	} else {
 		tracer := qlog_quic.NewFileQlogTracer(c.config.QlogPathTemplate, c.config.QlogConfig)
-		c.qlog = tracer(c.ctx, logging.PerspectiveClient, logging.ConnectionID{}).(qlog_quic.QlogWriterConnectionTracer).QlogWriter()
+		c.qlog = tracer(c.qperfCtx, logging.PerspectiveClient, logging.ConnectionID{}).(qlog_quic.QlogWriterConnectionTracer).QlogWriter()
 		tracers = append(tracers, tracer)
 	}
 
@@ -71,16 +78,10 @@ func Run(conf *Config) {
 	if c.config.QuicConfig.Tracer != nil {
 		panic("unexptected value")
 	}
-	c.config.QuicConfig.Tracer = func(ctx context.Context, perspective logging.Perspective, id quic.ConnectionID) logging.ConnectionTracer {
-		var connectionTracers []logging.ConnectionTracer
-		for _, tracer := range tracers {
-			connectionTracers = append(connectionTracers, tracer(ctx, perspective, id))
-		}
-		return logging.NewMultiplexedConnectionTracer(connectionTracers...)
-	}
+	c.config.QuicConfig.Tracer = common.NewMultiplexedTracer(tracers...)
 
 	if c.config.Use0RTT {
-		err := common.PingToGatherSessionTicketAndToken(c.ctx, c.config.RemoteAddress, c.config.TlsConfig, c.config.QuicConfig)
+		err := common.PingToGatherSessionTicketAndToken(c.qperfCtx, c.config.RemoteAddress, c.config.TlsConfig, c.config.QuicConfig)
 		if err != nil {
 			panic(fmt.Errorf("failed to prepare 0-RTT: %w", err))
 		}
@@ -89,28 +90,58 @@ func Run(conf *Config) {
 
 	c.state.SetStartTime()
 
-	var connection quic.Connection
+	go func() {
+		for {
+			select {
+			case <-c.stopping:
+				break
+			case <-c.qperfCtx.Done():
+				break
+			default:
+				err := c.runConn()
+				if err != nil {
+					panic(err)
+				}
+			}
+		}
+	}()
+
+	go func() {
+		err := c.Run()
+		if err != nil {
+			panic(err)
+		}
+	}()
+
+	return c
+}
+
+func (c *client) runConn() error {
+	c.state.ResetForReconnect()
 	if c.config.Use0RTT {
 		var err error
-		connection, err = quic.DialAddrEarly(c.ctx, c.config.RemoteAddress, c.config.TlsConfig, c.config.QuicConfig)
+		c.perfClient, err = perf_client.DialEarlyAddr(c.config.RemoteAddress, &perf_client.Config{
+			QuicConfig: c.config.QuicConfig,
+			TlsConfig:  c.config.TlsConfig,
+		})
 		if err != nil {
-			panic(fmt.Errorf("failed to establish connection: %w", err))
+			return err
 		}
 	} else {
 		var err error
-		connection, err = quic.DialAddr(c.ctx, c.config.RemoteAddress, c.config.TlsConfig, c.config.QuicConfig)
+		c.perfClient, err = perf_client.DialAddr(c.config.RemoteAddress, &perf_client.Config{
+			QuicConfig: c.config.QuicConfig,
+			TlsConfig:  c.config.TlsConfig,
+		})
 		if err != nil {
-			panic(fmt.Errorf("failed to establish connection: %w", err))
+			return err
 		}
 	}
 
-	c.conn = connection
-
-	//TODO extract somehow from connection tracer
-	c.state.SetEstablishmentTime()
-	if c.qlog != nil {
-		c.qlog.RecordEventAtTime(c.state.EstablishmentTime(), common.HandshakeCompletedEvent{})
-	}
+	go func() {
+		c.state.AwaitHandshakeCompleted()
+		c.qlog.RecordEventAtTime(c.state.HandshakeCompletedTime(), common.HandshakeCompletedEvent{})
+	}()
 
 	go func() {
 		c.state.AwaitHandshakeConfirmed()
@@ -121,103 +152,120 @@ func Run(conf *Config) {
 		c.qlog.RecordEvent(qlog_app.AppInfoEvent{Message: "use XADS-QUIC"})
 	}
 
-	// close gracefully on interrupt (CTRL+C)
-	intChan := make(chan os.Signal, 1)
-	signal.Notify(intChan, os.Interrupt)
 	go func() {
-		<-intChan
-		_ = connection.CloseWithError(quic.ApplicationErrorCode(quic.NoError), "client_closed")
-		os.Exit(0)
+	requestLoop:
+		for {
+			go func() {
+				req, resp, err := c.perfClient.Request(c.config.RequestLength, c.config.ResponseLength, c.config.ResponseDelay)
+				if err != nil {
+					c.handlePerfClose(err)
+					return
+				}
+				_ = resp
+				select {
+				case <-resp.Context().Done():
+					if resp.Success() {
+						c.state.AddReceivedResponses(1)
+					}
+				case <-time.After(c.config.Deadline):
+					req.Cancel()
+					resp.Cancel()
+					c.state.AddDeadlineExceededResponses(1)
+				}
+			}()
+			if c.config.RequestInterval == 0 {
+				break requestLoop
+			}
+			time.Sleep(c.config.RequestInterval)
+		}
 	}()
 
-	stream, err := connection.OpenStream()
-	if err != nil {
-		panic(fmt.Errorf("failed to open stream: %w", err))
+	if c.config.ReceiveInfiniteStream {
+		_, _, err := c.perfClient.Request(0, perf.MaxResponseLength, 0)
+		if err != nil {
+			c.handlePerfClose(err)
+		}
 	}
 
-	frameStream := control_frames.NewControlFrameStream(stream)
-
-	if c.config.ReceiveStream {
-		err = frameStream.WriteFrame(&control_frames.StartSendingFrame{StreamID: stream.StreamID()})
+	if c.config.SendInfiniteStream {
+		_, _, err := c.perfClient.Request(perf.MaxRequestLength, 0, 0)
 		if err != nil {
-			panic(fmt.Errorf("failed to write frame: %w", err))
+			c.handlePerfClose(err)
 		}
 	}
 
 	if c.config.ReceiveDatagram {
-		err = frameStream.WriteFrame(&control_frames.StartSendingDatagramsFrame{})
+		err := c.perfClient.DatagramRequest(0, perf.MaxDatagramResponseNum, perf.MaxDatagramResponseLength, 0)
 		if err != nil {
-			panic(fmt.Errorf("failed to write frame: %w", err))
+			c.handlePerfClose(err)
 		}
+
 	}
 
-	if c.config.SendStream {
-		stream, err := c.conn.OpenUniStream()
-		if err != nil {
-			c.CloseWithError(err)
-		}
-		go func() {
-			err := c.runSend(stream)
-			if err != nil {
-				c.CloseWithError(err)
-			}
-		}()
-	}
 	if c.config.SendDatagram {
 		go func() {
-			err := c.runDatagramSend()
-			if err != nil {
-				c.CloseWithError(err)
+			for {
+				err := c.perfClient.DatagramRequest(perf.MaxDatagramRequestLength, 0, 0, 0)
+				if err != nil {
+					c.handlePerfClose(err)
+				}
 			}
 		}()
 	}
 	go func() {
 		c.state.AwaitFirstByteReceived()
-		c.qlog.RecordEventAtTime(c.state.FirstByteTime(), common.FirstAppDataReceivedEvent{})
+		c.qlog.RecordEventAtTime(c.state.FirstByteReceivedTime(), common.FirstAppDataReceivedEvent{})
+	}()
+	go func() {
+		c.state.AwaitFirstByteSent()
+		c.qlog.RecordEventAtTime(c.state.FirstByteSentTime(), common.FirstAppDataSentEvent{})
+	}()
+
+	<-c.perfClient.Context().Done()
+	err := c.perfClient.Close()
+	c.handlePerfClose(err)
+	return nil
+}
+
+func (c *client) Run() error {
+
+	// close gracefully on interrupt (CTRL+C)
+	intChan := make(chan os.Signal, 1)
+	signal.Notify(intChan, os.Interrupt, syscall.SIGTERM, os.Kill)
+	go func() {
+		<-intChan
+		c.Close()
 	}()
 
 	if c.config.TimeToFirstByteOnly {
 		c.state.AwaitFirstByteReceived()
 	} else {
-		go func() {
-			stream, err := c.conn.AcceptUniStream(context.Background())
-			if err != nil {
-				c.CloseWithError(err)
-				return
-			}
-			err = c.runRawReceive(stream)
-			//err := c.runFrameReceive(frameStream)
-			if err != nil {
-				c.CloseWithError(err)
-				return
-			}
-		}()
 
-		intChan := make(chan os.Signal, 1)
-		signal.Notify(intChan, os.Interrupt, syscall.SIGTERM, os.Kill)
-		go func() {
-			<-intChan
-			c.Close()
-		}()
-
+		endTime := c.state.StartTime().Add(c.config.ProbeTime)
+		endTimeChan := time.After(endTime.Sub(time.Now()))
+	loop:
 		for {
-			if time.Now().Sub(c.state.StartTime()) > c.config.ProbeTime {
-				break
-			}
 			select {
+			case <-endTimeChan:
+				break loop
 			case <-time.After(c.config.ReportInterval):
 				c.report(c.state, false)
-			case <-c.ctx.Done():
-				break
+			case <-c.qperfCtx.Done():
+				break loop
 			}
 		}
 	}
 
 	c.Close()
+	return nil
 }
 
 func (c *client) report(state *common.State, total bool) {
 	var report common.Report
+	if c.perfClient != nil {
+		state.SetTotalReceiveStreamBytes(c.perfClient.ReceivedBytes())
+		state.SetTotalSentStreamBytes(c.perfClient.SentBytes())
+	}
 	if total {
 		report = state.TotalReport()
 	} else {
@@ -235,7 +283,7 @@ func (c *client) report(state *common.State, total bool) {
 	if c.config.ReportLostPackets {
 		event.PacketsLost = &report.PacketsLost
 	}
-	if c.config.ReceiveStream {
+	if c.config.ResponseLength != 0 || c.config.ReceiveInfiniteStream {
 		mbps := float32(report.ReceivedBytes) * 8 / float32(report.TimeAggregated.Seconds()) / float32(1e6)
 		event.StreamMegaBitsPerSecondReceived = &mbps
 		event.StreamBytesReceived = &report.ReceivedBytes
@@ -245,7 +293,7 @@ func (c *client) report(state *common.State, total bool) {
 		event.DatagramMegaBitsPerSecondReceived = &mbps
 		event.DatagramBytesReceived = &report.ReceivedDatagramBytes
 	}
-	if c.config.SendStream {
+	if c.config.RequestLength != 0 || c.config.SendInfiniteStream {
 		mbps := float32(report.SentBytes) * 8 / float32(report.TimeAggregated.Seconds()) / float32(1e6)
 		event.StreamMegaBitsPerSecondSent = &mbps
 		event.StreamBytesSent = &report.SentBytes
@@ -255,6 +303,12 @@ func (c *client) report(state *common.State, total bool) {
 		event.DatagramMegaBitsPerSecondSent = &mbps
 		event.DatagramBytesSent = &report.SentDatagramBytes
 	}
+	if c.config.RequestInterval != 0 {
+		event.ResponsesReceived = &report.ReceivedResponses
+	}
+	if report.DeadlineExceededResponses != 0 {
+		event.DeadlineExceededResponses = &report.DeadlineExceededResponses
+	}
 	if total {
 		c.qlog.RecordEventAtTime(now, common.TotalEvent{ReportEvent: *event})
 	} else {
@@ -262,57 +316,37 @@ func (c *client) report(state *common.State, total bool) {
 	}
 }
 
-// do not interpret qperf control_frames
-func (c *client) runRawReceive(stream quic.ReceiveStream) error {
-	for {
-		read, err := io.CopyN(io.Discard, stream, int64(control_frames.MaxFrameLength))
-		c.state.AddReceivedBytes(uint64(read))
-		if err != nil {
-			return err
+func (c *client) handlePerfClose(err error) {
+	if c.config.ReconnectOnTimeoutOrReset {
+		if _, ok := err.(*quic.IdleTimeoutError); ok {
+			return // reconnect
+		}
+		if _, ok := err.(*quic.StatelessResetError); ok {
+			return // reconnect
 		}
 	}
-}
-
-func (c *client) runSend(stream quic.SendStream) error {
-	var buf [65536]byte
-	for {
-		writen, err := stream.Write(buf[:])
-		if err != nil {
-			return err
-		}
-		c.state.AddSentBytes(uint64(writen))
-	}
-}
-
-func (c *client) runDatagramSend() error {
-	var buf = make([]byte, 1197)
-	//TODO calculate size from max_datagram_frame_size, max_udp_payload_size and path MTU
-	for {
-		err := c.conn.SendMessage(buf[:])
-		if err != nil {
-			return err
-		}
-	}
+	c.CloseWithError(err)
 }
 
 func (c *client) CloseWithError(err error) {
 	c.closeOnce.Do(func() {
+		close(c.stopping)
 		if err != nil {
-			c.logger.Errorf("close with error: %s", err)
-			err := c.conn.CloseWithError(errors.InternalErrorCode, "internal error")
-			if err != nil {
-				panic(fmt.Errorf("failed to close connection: %s", err))
+			if _, ok := err.(*quic.IdleTimeoutError); ok {
+				// close regularly
+			} else if _, ok := err.(*quic.ApplicationError); ok {
+				// close regularly
+			} else {
+				panic(fmt.Errorf("close with error: %s", err).Error())
 			}
+			c.perfClient.Close()
 		} else {
-			err := c.conn.CloseWithError(errors.NoError, "no error")
-			if err != nil {
-				panic(fmt.Errorf("failed to close connection: %w", err))
-			}
+			c.perfClient.Close()
 		}
 		c.report(c.state, true)
-		c.cancelCtx()
 		c.qlog.Close()
 		// flush qlog
+		c.cancelQperfCtx()
 	})
 }
 

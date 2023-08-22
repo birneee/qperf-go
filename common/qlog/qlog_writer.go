@@ -11,7 +11,7 @@ import (
 	"time"
 )
 
-type QlogWriter interface {
+type Writer interface {
 	RecordEvent(details EventDetails)
 	ReferenceTime() time.Time
 	RecordEventAtTime(time time.Time, details EventDetails)
@@ -19,9 +19,8 @@ type QlogWriter interface {
 	RecordEventWithTimeGroupODCID(details EventDetails, time time.Time, groupID string, odcid string)
 	Close()
 	Includes(category string, name string) bool
+	Config() Config
 }
-
-const eventChanSize = 50
 
 type qlogWriter struct {
 	mutex sync.Mutex
@@ -35,15 +34,20 @@ type qlogWriter struct {
 	config     *Config
 }
 
+func (w *qlogWriter) Config() Config {
+	return *w.config.Copy()
+}
+
 func (w *qlogWriter) Includes(category string, name string) bool {
 	return w.config.Included(category, name)
 }
 
-func NewQlogWriter(wc io.WriteCloser, config *Config) QlogWriter {
+func NewQlogWriter(wc io.WriteCloser, config *Config) Writer {
+	config = config.Populate()
 	w := &qlogWriter{
 		w:             wc,
 		runStopped:    make(chan struct{}),
-		events:        make(chan event, eventChanSize),
+		events:        make(chan event, config.MemoryQueueSize),
 		referenceTime: time.Now(),
 		config:        config,
 	}

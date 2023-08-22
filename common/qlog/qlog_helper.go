@@ -9,12 +9,12 @@ import (
 )
 
 // NewStdoutQlogWriter writes everything to a stdout
-func NewStdoutQlogWriter(config *Config) QlogWriter {
+func NewStdoutQlogWriter(config *Config) Writer {
 	return NewQlogWriter(&NotClosingWriteCloser{os.Stdout}, config)
 }
 
 // NewFileQlogWriter writes everything to a single file
-func NewFileQlogWriter(filepath string, config *Config) QlogWriter {
+func NewFileQlogWriter(filepath string, config *Config) Writer {
 	err := os.MkdirAll(path.Dir(filepath), 0700)
 	if err != nil {
 		panic(err)

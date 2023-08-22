@@ -12,6 +12,14 @@ Uses https://github.com/birneee/quic-go
 - CPU profiling
 - experimental XADS-QUIC extension (TBD)
 
+## Features
+
+- send and receive streams
+- send and receive datagrams ([RFC9221](https://datatracker.ietf.org/doc/html/rfc9221))
+- qlog output ([draft-ietf-quic-qlog](https://datatracker.ietf.org/doc/draft-ietf-quic-qlog-main-schema/))
+- 0-RTT handshakes
+- CPU profiling
+
 ## Example
 ```bash
 $ qperf-go client -a localhost -xads

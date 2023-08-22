@@ -14,3 +14,15 @@ func AppendPortIfNotSpecified(address string, port int) string {
 	}
 	return fmt.Sprintf("%s:%d", address, port)
 }
+
+// GetHost returns host of string and remove port if present;
+// example: GetHost("localhost") = "localhost"
+// example: GetHost("localhost:80") = "localhost"
+func GetHost(address string) string {
+	r := regexp.MustCompile("^(.*):\\d+?$")
+	groups := r.FindStringSubmatch(address)
+	if len(groups) == 2 {
+		return groups[1]
+	}
+	return address
+}

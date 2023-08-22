@@ -7,6 +7,7 @@ var QlogLevelInfoEvents = map[string]bool{
 	"qperf:handshake_completed":     true,
 	"qperf:handshake_confirmed":     true,
 	"qperf:first_app_data_received": true,
+	"qperf:first_app_data_sent":     true,
 	"qperf:report":                  true,
 	"transport:path_updated":        true,
 	"qperf:total":                   true,

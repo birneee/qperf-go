@@ -12,20 +12,6 @@ import (
 	"time"
 )
 
-func NewCertPoolWithCert(tlsCertFile string) *x509.CertPool {
-	certPool := x509.NewCertPool()
-	caCertRaw, err := os.ReadFile(tlsCertFile)
-	if err != nil {
-		panic(err)
-	}
-
-	ok := certPool.AppendCertsFromPEM(caCertRaw)
-	if !ok {
-		panic("failed to add certificate to pool")
-	}
-	return certPool
-}
-
 func NewCertPoolFromFiles(files ...string) *x509.CertPool {
 	certPool := x509.NewCertPool()
 	for _, file := range files {

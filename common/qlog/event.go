@@ -32,7 +32,7 @@ var _ gojay.UnmarshalerJSONObject = &event{}
 
 func (e event) IsNil() bool { return false }
 
-// implement gojay.MarshalJSONObject
+// MarshalJSONObject implements gojay.MarshalJSONObject
 func (e event) MarshalJSONObject(enc *gojay.Encoder) {
 	enc.Float64Key("time", milliseconds(e.RelativeTime))
 	enc.StringKey("name", e.Category()+":"+e.Name())
@@ -41,8 +41,8 @@ func (e event) MarshalJSONObject(enc *gojay.Encoder) {
 	enc.StringKeyOmitEmpty("ODCID", e.ODCID)
 }
 
-// implement gojay.UnmarshalerJSONObject
-func (e *event) UnmarshalJSONObject(dec *gojay.Decoder, key string) error {
+// UnmarshalJSONObject implements gojay.UnmarshalerJSONObject
+func (e event) UnmarshalJSONObject(dec *gojay.Decoder, key string) error {
 	if e.EventDetails == nil {
 		e.EventDetails = &genericEventDetails{}
 	}
