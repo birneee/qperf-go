@@ -19,6 +19,7 @@ type Client interface {
 	ReceivedBytes() uint64
 	SentBytes() uint64
 	DatagramRequest(requestLength uint64, responseNum uint32, responseLength uint32, responseDelay time.Duration) error
+	ExtraApplicationDataSecurity() bool
 }
 
 type client struct {
@@ -160,4 +161,8 @@ func (c *client) DatagramRequest(requestLength uint64, responseNum uint32, respo
 		return err
 	}
 	return nil
+}
+
+func (c *client) ExtraApplicationDataSecurity() bool {
+	return c.conn.ExtraApplicationDataSecurity()
 }

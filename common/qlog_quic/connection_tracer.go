@@ -488,7 +488,7 @@ func (t *connectionTracer) Debug(name, msg string) {
 
 func (t *connectionTracer) XadsReceiveRecord(streamID logging.StreamID, rawLength int, dataLength int) {
 	//TODO this event is not standardized by https://datatracker.ietf.org/doc/html/draft-marx-qlog-event-definitions-quic-h3
-	if !t.config.LogXadsRecordReceived {
+	if !t.config.LogTransportXadsRecordReceived {
 		return
 	}
 	//t.mutex.Lock()

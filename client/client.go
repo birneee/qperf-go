@@ -148,7 +148,7 @@ func (c *client) runConn() error {
 		c.qlog.RecordEventAtTime(c.state.HandshakeConfirmedTime(), common.HandshakeConfirmedEvent{})
 	}()
 
-	if connection.ExtraApplicationDataSecurity() {
+	if c.perfClient.ExtraApplicationDataSecurity() {
 		c.qlog.RecordEvent(qlog_app.AppInfoEvent{Message: "use XADS-QUIC"})
 	}
 

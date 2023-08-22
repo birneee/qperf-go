@@ -22,6 +22,7 @@ type config struct {
 	LogTransportParametersRestored    bool
 	LogTransportParametersSet         bool
 	LogRecoveryCongestionStateUpdated bool
+	LogTransportXadsRecordReceived    bool
 }
 
 func (c *config) ApplyConf(qlogConfig qlog.Config) {
@@ -73,5 +74,7 @@ func (c *config) SetIncludeByName(name string, include bool) {
 		c.LogRecoveryLossTimerUpdated = include
 	case "recovery:congestion_state_updated":
 		c.LogRecoveryCongestionStateUpdated = include
+	case "transport:xads_record_received":
+		c.LogTransportXadsRecordReceived = include
 	}
 }

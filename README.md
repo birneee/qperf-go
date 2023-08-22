@@ -44,7 +44,7 @@ $ qperf-go client -a localhost -xads
 ```
 
 ## Requirements
-- Go 1.20
+- Go 1.20 (1.21 not yet supported)
 
 ## Build
 ```bash
