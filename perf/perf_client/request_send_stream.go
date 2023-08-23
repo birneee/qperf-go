@@ -1,6 +1,7 @@
 package perf_client
 
 import (
+	"context"
 	"encoding/binary"
 	"github.com/quic-go/quic-go"
 	"io"
@@ -15,6 +16,7 @@ import (
 type RequestSendStream interface {
 	SentBytes() uint64
 	Cancel()
+	Context() context.Context
 }
 
 type requestSendStream struct {
@@ -26,7 +28,8 @@ type requestSendStream struct {
 	sentBytes      atomic.Uint64
 	client         *client
 	closeOnce      sync.Once
-	err            error
+	ctx            context.Context
+	cancelCtx      context.CancelCauseFunc
 }
 
 func newRequestSendStream(quicStream quic.SendStream, requestLength uint64, responseLength uint64, responseDelay time.Duration, client *client) RequestSendStream {
@@ -37,12 +40,10 @@ func newRequestSendStream(quicStream quic.SendStream, requestLength uint64, resp
 		responseDelay:  responseDelay,
 		client:         client,
 	}
+	s.ctx, s.cancelCtx = context.WithCancelCause(client.Context())
 	go func() {
 		err := s.run()
-		if err != nil {
-			s.close(err)
-			return
-		}
+		s.cancelCtx(err)
 	}()
 	return s
 }
@@ -56,11 +57,7 @@ func (s *requestSendStream) run() error {
 		s.client.sentBytes.Add(uint64(len(p)))
 		return len(p), err
 	}))
-	_, err := sendStream.Write(buf[:12])
-	if err != nil {
-		return err
-	}
-	_, err = io.CopyBuffer(sendStream, common.LimitReader(utils.InfiniteReader{}, s.requestLength), buf[:])
+	_, err := io.CopyBuffer(sendStream, common.LimitReader(utils.InfiniteReader{}, common.Max(s.requestLength, 12)), buf[:])
 	if err != nil {
 		return err
 	}
@@ -77,25 +74,13 @@ func (s *requestSendStream) SentBytes() uint64 {
 
 func (s *requestSendStream) Cancel() {
 	s.quicStream.CancelWrite(perf.DeadlineExceededStreamErrorCode)
-	s.close(&quic.StreamError{
+	s.cancelCtx(&quic.StreamError{
 		StreamID:  s.quicStream.StreamID(),
 		ErrorCode: perf.DeadlineExceededStreamErrorCode,
 		Remote:    false,
 	})
 }
 
-func (s *requestSendStream) close(err error) {
-	s.closeOnce.Do(func() {
-		s.err = err
-		switch err := err.(type) {
-		case *quic.StreamError:
-			switch err.ErrorCode {
-			case perf.DeadlineExceededStreamErrorCode:
-			default:
-				s.client.close(err)
-			}
-		default:
-			s.client.close(err)
-		}
-	})
+func (s *requestSendStream) Context() context.Context {
+	return s.ctx
 }

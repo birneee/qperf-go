@@ -3,9 +3,10 @@ package perf_client
 import (
 	"context"
 	"encoding/binary"
+	"errors"
 	"github.com/quic-go/quic-go"
 	"qperf-go/common"
-	"qperf-go/errors"
+	errors2 "qperf-go/errors"
 	"qperf-go/perf"
 	"sync"
 	"sync/atomic"
@@ -118,9 +119,29 @@ func (c *client) Request(requestLength uint64, responseLength uint64, responseDe
 		return nil, nil, err
 	}
 	requestStream := newRequestSendStream(stream, requestLength, responseLength, responseDelay, c)
-	responseStream, err := newResponseReceiveStream(stream, c)
-	if err != nil {
-		return nil, nil, err
+	go func() {
+		ctx := requestStream.Context()
+		<-ctx.Done()
+		err := ctx.Err()
+		var streamErr *quic.StreamError
+		switch {
+		case errors.Is(err, context.Canceled):
+		case errors.As(streamErr, &err):
+			switch streamErr.ErrorCode {
+			case perf.DeadlineExceededStreamErrorCode:
+			default:
+				c.close(err)
+			}
+		default:
+			c.close(err)
+		}
+	}()
+	var responseStream ResponseReceiveStream = nil
+	if responseLength != 0 {
+		responseStream, err = newResponseReceiveStream(stream, c)
+		if err != nil {
+			return nil, nil, err
+		}
 	}
 	return requestStream, responseStream, nil
 }
@@ -129,10 +150,10 @@ func (c *client) Request(requestLength uint64, responseLength uint64, responseDe
 func (c *client) close(err error) {
 	c.closeOnce.Do(func() {
 		if err != nil {
-			err := c.conn.CloseWithError(errors.InternalErrorCode, "internal error")
+			err := c.conn.CloseWithError(errors2.InternalErrorCode, "internal error")
 			c.err = err
 		} else {
-			err := c.conn.CloseWithError(errors.NoError, "no error")
+			err := c.conn.CloseWithError(errors2.NoError, "no error")
 			c.err = err
 		}
 		c.cancelCtx()

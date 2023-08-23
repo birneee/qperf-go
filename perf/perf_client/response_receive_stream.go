@@ -2,6 +2,7 @@ package perf_client
 
 import (
 	"context"
+	"errors"
 	"github.com/quic-go/quic-go"
 	"io"
 	"qperf-go/common/utils"
@@ -21,8 +22,7 @@ type responseReceiveStream struct {
 	client        *client
 	quicStream    quic.ReceiveStream
 	ctx           context.Context
-	cancelCtx     context.CancelFunc
-	success       bool
+	cancelCtx     context.CancelCauseFunc
 }
 
 func newResponseReceiveStream(quicStream quic.ReceiveStream, client *client) (ResponseReceiveStream, error) {
@@ -30,7 +30,7 @@ func newResponseReceiveStream(quicStream quic.ReceiveStream, client *client) (Re
 		client:     client,
 		quicStream: quicStream,
 	}
-	s.ctx, s.cancelCtx = context.WithCancel(client.Context())
+	s.ctx, s.cancelCtx = context.WithCancelCause(client.Context())
 	go func() {
 		err := s.run()
 		if err != nil {
@@ -63,8 +63,7 @@ func (s *responseReceiveStream) run() error {
 	if err != nil {
 		return err
 	}
-	s.success = true
-	s.cancelCtx()
+	s.cancelCtx(nil)
 	return nil
 }
 
@@ -77,5 +76,5 @@ func (s *responseReceiveStream) Cancel() {
 }
 
 func (s *responseReceiveStream) Success() bool {
-	return s.success
+	return errors.Is(s.ctx.Err(), context.Canceled)
 }

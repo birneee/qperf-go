@@ -12,6 +12,7 @@ import (
 
 const (
 	DefaultProbeTime      = 10 * time.Second
+	MaxProbeTime          = 10 * time.Hour
 	DefaultReportInterval = 1 * time.Second
 	DefaultQlogTitle      = "qperf"
 )
