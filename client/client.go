@@ -31,6 +31,7 @@ type client struct {
 	closeOnce  sync.Once
 	// closed when client is stopping and doing some final output and cleanup
 	stopping       chan struct{}
+	streamLoopDone chan struct{}
 	qperfCtx       context.Context
 	cancelQperfCtx context.CancelFunc
 }
@@ -42,9 +43,10 @@ func (c *client) Context() context.Context {
 // Dial starts a new client
 func Dial(conf *Config) Client {
 	c := &client{
-		state:    common.NewState(),
-		config:   conf,
-		stopping: make(chan struct{}),
+		state:          common.NewState(),
+		config:         conf,
+		stopping:       make(chan struct{}),
+		streamLoopDone: make(chan struct{}),
 	}
 	c.qperfCtx, c.cancelQperfCtx = context.WithCancel(context.Background())
 
@@ -148,33 +150,7 @@ func (c *client) runConn() error {
 		c.qlog.RecordEventAtTime(c.state.HandshakeConfirmedTime(), common.HandshakeConfirmedEvent{})
 	}()
 
-	go func() {
-	requestLoop:
-		for {
-			go func() {
-				req, resp, err := c.perfClient.Request(c.config.RequestLength, c.config.ResponseLength, c.config.ResponseDelay)
-				if err != nil {
-					c.handlePerfClose(err)
-					return
-				}
-				_ = resp
-				select {
-				case <-resp.Context().Done():
-					if resp.Success() {
-						c.state.AddReceivedResponses(1)
-					}
-				case <-time.After(c.config.Deadline):
-					req.Cancel()
-					resp.Cancel()
-					c.state.AddDeadlineExceededResponses(1)
-				}
-			}()
-			if c.config.RequestInterval == 0 {
-				break requestLoop
-			}
-			time.Sleep(c.config.RequestInterval)
-		}
-	}()
+	c.runStreamRequestLoop()
 
 	if c.config.ReceiveInfiniteStream {
 		_, _, err := c.perfClient.Request(0, perf.MaxResponseLength, 0)
@@ -223,6 +199,48 @@ func (c *client) runConn() error {
 	return nil
 }
 
+func (c *client) runStreamRequestLoop() {
+	if c.config.RequestLength == 0 && c.config.ResponseLength == 0 {
+		close(c.streamLoopDone)
+		return
+	}
+	go func() {
+	requestLoop:
+		for {
+			go func() {
+				req, resp, err := c.perfClient.Request(c.config.RequestLength, c.config.ResponseLength, c.config.ResponseDelay)
+				if err != nil {
+					c.handlePerfClose(err)
+					return
+				}
+				select {
+				case <-req.Context().Done():
+				case <-time.After(c.config.Deadline):
+					req.Cancel()
+				}
+				if resp != nil {
+					select {
+					case <-resp.Context().Done():
+						if resp.Success() {
+							c.state.AddReceivedResponses(1)
+						}
+					case <-time.After(c.config.Deadline):
+						resp.Cancel()
+						c.state.AddDeadlineExceededResponses(1)
+					}
+				}
+				if c.config.RequestInterval == 0 {
+					close(c.streamLoopDone)
+				}
+			}()
+			if c.config.RequestInterval == 0 {
+				break requestLoop
+			}
+			time.Sleep(c.config.RequestInterval)
+		}
+	}()
+}
+
 func (c *client) Run() error {
 
 	// close gracefully on interrupt (CTRL+C)
@@ -231,6 +249,13 @@ func (c *client) Run() error {
 	go func() {
 		<-intChan
 		c.Close()
+	}()
+
+	go func() {
+		<-c.streamLoopDone
+		if !c.config.ReceiveInfiniteStream && !c.config.SendInfiniteStream && !c.config.ReceiveDatagram && !c.config.SendDatagram {
+			c.Close()
+		}
 	}()
 
 	if c.config.TimeToFirstByteOnly {

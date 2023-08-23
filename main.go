@@ -79,10 +79,9 @@ func clientCommand(config *client.Config) *cli.Command {
 				},
 			},
 			&cli.Float64Flag{
-				Name:       "t",
-				Usage:      "run for this many seconds",
-				Value:      client.DefaultProbeTime.Seconds(),
-				HasBeenSet: true,
+				Name:  "t",
+				Usage: "run for this many seconds",
+				Value: client.DefaultProbeTime.Seconds(),
 				Action: func(context *cli.Context, f float64) error {
 					config.ProbeTime = time.Duration(f * float64(time.Second))
 					return nil
@@ -234,12 +233,16 @@ func clientCommand(config *client.Config) *cli.Command {
 					return nil
 				},
 			},
-			&cli.Uint64Flag{
+			&cli.StringFlag{
 				Name:  "request-length",
 				Usage: "bytes sent per stream request",
-				Value: 0,
-				Action: func(context *cli.Context, v uint64) error {
-					config.RequestLength = v
+				Value: "0",
+				Action: func(context *cli.Context, v string) error {
+					var err error
+					config.RequestLength, err = common.ParseByteCountWithUnit(v)
+					if err != nil {
+						return err
+					}
 					return nil
 				},
 			},
@@ -252,12 +255,16 @@ func clientCommand(config *client.Config) *cli.Command {
 					return nil
 				},
 			},
-			&cli.Uint64Flag{
+			&cli.StringFlag{
 				Name:  "response-length",
 				Usage: "bytes received per stream response",
-				Value: 0,
-				Action: func(context *cli.Context, v uint64) error {
-					config.ResponseLength = v
+				Value: "0",
+				Action: func(context *cli.Context, v string) error {
+					var err error
+					config.ResponseLength, err = common.ParseByteCountWithUnit(v)
+					if err != nil {
+						return err
+					}
 					return nil
 				},
 			},
@@ -289,6 +296,18 @@ func clientCommand(config *client.Config) *cli.Command {
 				config.RequestLength == 0 &&
 				config.ResponseLength == 0 {
 				config.ReceiveInfiniteStream = true // receive stream if nothing else is specified
+			}
+
+			if config.ProbeTime == 0 {
+				if config.ReceiveInfiniteStream ||
+					config.SendInfiniteStream ||
+					config.ReceiveDatagram ||
+					config.SendDatagram ||
+					config.RequestInterval != 0 {
+					config.ProbeTime = client.DefaultProbeTime
+				} else {
+					config.ProbeTime = client.MaxProbeTime // stop after transaction not after time
+				}
 			}
 
 			config.QuicConfig.MaxStreamReceiveWindow = common.Max(config.QuicConfig.InitialStreamReceiveWindow, config.QuicConfig.MaxStreamReceiveWindow)
