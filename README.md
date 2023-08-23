@@ -12,35 +12,27 @@ Uses https://github.com/birneee/quic-go
 - CPU profiling
 - experimental XADS-QUIC extension (TBD)
 
-## Features
-
-- send and receive streams
-- send and receive datagrams ([RFC9221](https://datatracker.ietf.org/doc/html/rfc9221))
-- qlog output ([draft-ietf-quic-qlog](https://datatracker.ietf.org/doc/draft-ietf-quic-qlog-main-schema/))
-- 0-RTT handshakes
-- CPU profiling
-
 ## Example
 ```bash
 $ qperf-go client -a localhost -xads
 {"qlog_format":"NDJSON","qlog_version":"draft-02","title":"qperf","code_version":"(devel)","trace":{"vantage_point":{"type":"client"},"common_fields":{"reference_time":1684163451590.148,"time_format":"relative"}}}
 {"time":1.095419,"name":"transport:connection_started","data":{"ip_version":"ipv6","src_ip":"::","src_port":46078,"dst_ip":"127.0.0.1","dst_port":18080,"src_cid":"(empty)","dst_cid":"bcfce24fc203637c9c034a"},"group_id":"bcfce24fc203637c9c034a","ODCID":"bcfce24fc203637c9c034a"}
-{"time":3.466772,"name":"qperf:handshake_completed","data":{}}
-{"time":3.47355,"name":"app:info","data":{"message":"use XADS-QUIC"}}
-{"time":3.672632,"name":"qperf:handshake_confirmed","data":{}}
-{"time":3.912037,"name":"qperf:first_app_data_received","data":{}}
-{"time":1003.589264,"name":"qperf:report","data":{"stream_mbps_received":2473.7253,"stream_bytes_received":310322430,"period":1003.5793}}
-{"time":2003.608461,"name":"qperf:report","data":{"stream_mbps_received":2541.7769,"stream_bytes_received":317728224,"period":1000.0192}}
-{"time":3003.673975,"name":"qperf:report","data":{"stream_mbps_received":2501.291,"stream_bytes_received":312681798,"period":1000.06537}}
-{"time":4003.692731,"name":"qperf:report","data":{"stream_mbps_received":2527.6216,"stream_bytes_received":315958698,"period":1000.0189}}
-{"time":5003.730145,"name":"qperf:report","data":{"stream_mbps_received":2510.7983,"stream_bytes_received":313861482,"period":1000.03723}}
-{"time":6003.740422,"name":"qperf:report","data":{"stream_mbps_received":2463.1548,"stream_bytes_received":307897524,"period":1000.0104}}
-{"time":7003.75318,"name":"qperf:report","data":{"stream_mbps_received":2539.1724,"stream_bytes_received":317400534,"period":1000.01263}}
-{"time":8003.797494,"name":"qperf:report","data":{"stream_mbps_received":2514.4502,"stream_bytes_received":314320248,"period":1000.04443}}
-{"time":9003.802483,"name":"qperf:report","data":{"stream_mbps_received":2513.501,"stream_bytes_received":314189172,"period":1000.005}}
-{"time":10003.811366,"name":"qperf:report","data":{"stream_mbps_received":2480.9849,"stream_bytes_received":310125816,"period":1000.00885}}
-{"time":10003.828427,"name":"transport:connection_closed","data":{"owner":"local","application_code":0,"reason":"no error"},"group_id":"bcfce24fc203637c9c034a","ODCID":"bcfce24fc203637c9c034a"}
-{"time":10003.85524,"name":"qperf:total","data":{"stream_mbps_received":2506.6792,"stream_bytes_received":3134554112,"period":10003.846}}
+{"time":2.26899,"name":"app:info","data":{"message":"use XADS-QUIC"}}
+{"time":2.21681,"name":"qperf:handshake_completed","data":{}}
+{"time":2.523389,"name":"qperf:handshake_confirmed","data":{}}
+{"time":2.656643,"name":"qperf:first_app_data_sent","data":{}}
+{"time":2.886065,"name":"qperf:first_app_data_received","data":{}}
+{"time":1000.3204,"name":"qperf:report","data":{"stream_mbps_received":4017.4238,"stream_bytes_received":502333440,"period":1000.3096}}
+{"time":2000.328104,"name":"qperf:report","data":{"stream_mbps_received":4087.5806,"stream_bytes_received":510951424,"period":1000.0075}}
+{"time":3000.352802,"name":"qperf:report","data":{"stream_mbps_received":4092.884,"stream_bytes_received":511623168,"period":1000.02484}}
+{"time":4000.45348,"name":"qperf:report","data":{"stream_mbps_received":4067.5408,"stream_bytes_received":508493824,"period":1000.1007}}
+{"time":5000.467069,"name":"qperf:report","data":{"stream_mbps_received":4075.8906,"stream_bytes_received":509493248,"period":1000.0136}}
+{"time":6000.483748,"name":"qperf:report","data":{"stream_mbps_received":4142.724,"stream_bytes_received":517849088,"period":1000.01654}}
+{"time":7000.565416,"name":"qperf:report","data":{"stream_mbps_received":4068.0115,"stream_bytes_received":508542976,"period":1000.0816}}
+{"time":8000.593553,"name":"qperf:report","data":{"stream_mbps_received":4063.904,"stream_bytes_received":508002304,"period":1000.02814}}
+{"time":9000.638564,"name":"qperf:report","data":{"stream_mbps_received":4089.5242,"stream_bytes_received":511213568,"period":1000.0451}}
+{"time":10000.155606,"name":"transport:connection_closed","data":{"owner":"local","application_code":0,"reason":"no error"},"group_id":"bcfce24fc203637c9c034a","ODCID":"bcfce24fc203637c9c034a"}
+{"time":10000.18806,"name":"qperf:total","data":{"stream_mbps_received":4073.2524,"stream_bytes_received":5091655680,"period":10000.178}}
 ```
 
 ## Requirements
