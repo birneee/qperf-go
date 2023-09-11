@@ -21,6 +21,7 @@ type Client interface {
 	SentBytes() uint64
 	DatagramRequest(requestLength uint64, responseNum uint32, responseLength uint32, responseDelay time.Duration) error
 	ExtraApplicationDataSecurity() bool
+	ConnectionState() quic.ConnectionState
 }
 
 type client struct {
@@ -186,4 +187,8 @@ func (c *client) DatagramRequest(requestLength uint64, responseNum uint32, respo
 
 func (c *client) ExtraApplicationDataSecurity() bool {
 	return c.conn.ExtraApplicationDataSecurity()
+}
+
+func (c *client) ConnectionState() quic.ConnectionState {
+	return c.conn.ConnectionState()
 }

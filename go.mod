@@ -4,7 +4,7 @@ go 1.20
 
 replace (
 	github.com/quic-go/qtls-go1-20 => github.com/birneee/qtls-go1-20 v0.0.0-20230822163111-cfa94cb80061
-	github.com/quic-go/quic-go => github.com/birneee/quic-go v0.23.1-0.20230822171725-abb8bb94c5ff
+	github.com/quic-go/quic-go => github.com/birneee/quic-go v0.23.1-0.20230911095254-ad480ce8d73a
 )
 
 require (

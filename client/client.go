@@ -154,6 +154,10 @@ func (c *client) runConn() error {
 		c.qlog.RecordEvent(qlog_app.AppInfoEvent{Message: "use XADS-QUIC"})
 	}
 
+	if c.perfClient.ConnectionState().GSO {
+		c.qlog.RecordEvent(qlog_app.AppInfoEvent{Message: "use GSO"})
+	}
+
 	c.runStreamRequestLoop()
 
 	if c.config.ReceiveInfiniteStream {
