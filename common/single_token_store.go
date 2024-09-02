@@ -10,6 +10,7 @@ type SingleTokenStore struct {
 	emptyContextCancel context.CancelFunc
 	key                *string
 	token              *quic.ClientToken
+	validateKey        bool
 }
 
 var _ quic.TokenStore = (*SingleTokenStore)(nil)
@@ -18,7 +19,7 @@ var _ quic.TokenStore = (*SingleTokenStore)(nil)
 func (s *SingleTokenStore) Pop(key string) (token *quic.ClientToken) {
 	select {
 	case <-s.emptyContext.Done():
-		if key == *s.key {
+		if key == *s.key || !s.validateKey {
 			return s.token
 		}
 	default: // do not wait
@@ -49,5 +50,6 @@ func NewSingleTokenStore() *SingleTokenStore {
 		emptyContextCancel,
 		nil,
 		nil,
+		false,
 	}
 }

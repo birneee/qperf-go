@@ -3,9 +3,9 @@ package perf_server
 import (
 	"context"
 	"encoding/binary"
-	"fmt"
 	"github.com/quic-go/quic-go"
 	"io"
+	"qperf-go/common"
 	"qperf-go/perf"
 	"sync"
 	"sync/atomic"
@@ -51,30 +51,25 @@ func newRequestReceiveStream(quicStream quic.ReceiveStream, connection *connecti
 }
 
 func (s *requestReceiveStream) run() error {
-	var buf [65536]byte
-	n, err := s.quicStream.Read(buf[:12])
+	var buf [12]byte
+	reader := common.NewCountingReader(s.quicStream, func(n int) {
+		s.receivedBytes.Add(uint64(n))
+	})
+
+	_, err := io.ReadAtLeast(reader, buf[:], 12)
 	if err != nil && err != io.EOF {
+		s.ctxCancel()
 		return err
-	}
-	if n != 12 {
-		return fmt.Errorf("invalid request header")
 	}
 	s.responseLength = binary.LittleEndian.Uint64(buf[0:8])
 	s.responseDelay = time.Duration(binary.LittleEndian.Uint32(buf[8:12])) * time.Millisecond
-	s.receivedBytes.Add(uint64(n))
 
-	for {
-		n, err := s.quicStream.Read(buf[:])
-		s.receivedBytes.Add(uint64(n))
-		if err != nil {
-			if err == io.EOF {
-				break
-			} else {
-				s.ctxCancel()
-				return err
-			}
-		}
+	_, err = io.Copy(io.Discard, reader)
+	if err != nil {
+		s.ctxCancel()
+		return err
 	}
+
 	s.success = true
 	s.ctxCancel()
 	return nil

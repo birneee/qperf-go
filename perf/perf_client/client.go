@@ -2,11 +2,10 @@ package perf_client
 
 import (
 	"context"
-	"encoding/binary"
-	"errors"
+	errors2 "errors"
 	"github.com/quic-go/quic-go"
-	"qperf-go/common"
-	errors2 "qperf-go/errors"
+	"net"
+	"qperf-go/errors"
 	"qperf-go/perf"
 	"sync"
 	"sync/atomic"
@@ -19,55 +18,48 @@ type Client interface {
 	Close() error
 	ReceivedBytes() uint64
 	SentBytes() uint64
-	DatagramRequest(requestLength uint64, responseNum uint32, responseLength uint32, responseDelay time.Duration) error
 }
 
 type client struct {
-	conn          quic.Connection
-	config        *Config
-	closeOnce     sync.Once
-	ctx           context.Context
-	cancelCtx     context.CancelFunc
-	err           error
-	receivedBytes atomic.Uint64
-	sentBytes     atomic.Uint64
-	datagramBuf   [perf.MaxDatagramRequestLength]byte
+	conn                    quic.Connection
+	config                  *Config
+	closeOnce               sync.Once
+	ctx                     context.Context
+	cancelCtx               context.CancelCauseFunc
+	receivedBytes           atomic.Uint64
+	sentBytes               atomic.Uint64
+	datagramReceiveLoopDone chan struct{}
 }
 
 func (c *client) Context() context.Context {
 	return c.ctx
 }
 
-func DialAddr(remoteAddr string, conf *Config) (Client, error) {
-	c := &client{
-		config: conf.Populate(),
+func DialAddr(remoteAddr string, conf *Config, early bool) (Client, error) {
+	udpConn, err := net.ListenUDP("udp", &net.UDPAddr{IP: net.IPv4zero, Port: 0})
+	if err != nil {
+		return nil, err
 	}
-	c.ctx, c.cancelCtx = context.WithCancel(context.Background())
+	t := quic.Transport{
+		Conn:               udpConn,
+		ConnectionIDLength: 4,
+	}
+	c := &client{
+		config:                  conf.Populate(),
+		datagramReceiveLoopDone: make(chan struct{}),
+	}
+	c.ctx, c.cancelCtx = context.WithCancelCause(context.Background())
 
-	var err error
-	c.conn, err = quic.DialAddr(c.ctx, remoteAddr, c.config.TlsConfig, c.config.QuicConfig)
+	addr, err := net.ResolveUDPAddr("udp", remoteAddr)
 	if err != nil {
 		return nil, err
 	}
 
-	go func() {
-		err := c.run()
-		if err != nil {
-			c.close(err)
-		}
-	}()
-
-	return c, nil
-}
-
-func DialEarlyAddr(remoteAddr string, conf *Config) (Client, error) {
-	c := &client{
-		config: conf.Populate(),
+	if early {
+		c.conn, err = t.DialEarly(c.ctx, addr, c.config.TlsConfig, c.config.QuicConfig)
+	} else {
+		c.conn, err = t.Dial(c.ctx, addr, c.config.TlsConfig, c.config.QuicConfig)
 	}
-	c.ctx, c.cancelCtx = context.WithCancel(context.Background())
-
-	var err error
-	c.conn, err = quic.DialAddrEarly(c.ctx, remoteAddr, c.config.TlsConfig, c.config.QuicConfig)
 	if err != nil {
 		return nil, err
 	}
@@ -89,17 +81,22 @@ func (c *client) run() error {
 			c.close(err)
 		}
 	}()
-
+	go func() {
+		err := c.runDatagramReceiveLoop()
+		if err != nil {
+			c.close(err)
+		}
+	}()
 	<-c.ctx.Done()
 	return nil
 }
 
 func (c *client) acceptResponseReceiveStream() (ResponseReceiveStream, error) {
-	quicStream, err := c.conn.AcceptUniStream(context.Background())
+	_, err := c.conn.AcceptUniStream(context.Background())
 	if err != nil {
 		return nil, err
 	}
-	return newResponseReceiveStream(quicStream, c)
+	panic("implement me")
 }
 
 func (c *client) runStreamAcceptLoop() error {
@@ -118,29 +115,9 @@ func (c *client) Request(requestLength uint64, responseLength uint64, responseDe
 		return nil, nil, err
 	}
 	requestStream := newRequestSendStream(stream, requestLength, responseLength, responseDelay, c)
-	go func() {
-		ctx := requestStream.Context()
-		<-ctx.Done()
-		err := ctx.Err()
-		var streamErr *quic.StreamError
-		switch {
-		case errors.Is(err, context.Canceled):
-		case errors.As(streamErr, &err):
-			switch streamErr.ErrorCode {
-			case perf.DeadlineExceededStreamErrorCode:
-			default:
-				c.close(err)
-			}
-		default:
-			c.close(err)
-		}
-	}()
-	var responseStream ResponseReceiveStream = nil
-	if responseLength != 0 {
-		responseStream, err = newResponseReceiveStream(stream, c)
-		if err != nil {
-			return nil, nil, err
-		}
+	responseStream, err := newResponseReceiveStream(stream, c, responseLength)
+	if err != nil {
+		return nil, nil, err
 	}
 	return requestStream, responseStream, nil
 }
@@ -149,19 +126,22 @@ func (c *client) Request(requestLength uint64, responseLength uint64, responseDe
 func (c *client) close(err error) {
 	c.closeOnce.Do(func() {
 		if err != nil {
-			err := c.conn.CloseWithError(errors2.InternalErrorCode, "internal error")
-			c.err = err
+			_ = c.conn.CloseWithError(errors.InternalErrorCode, "internal error")
 		} else {
-			err := c.conn.CloseWithError(errors2.NoError, "no error")
-			c.err = err
+			err = c.conn.CloseWithError(errors.NoError, "no error")
 		}
-		c.cancelCtx()
+		<-c.datagramReceiveLoopDone
+		c.cancelCtx(err)
 	})
 }
 
 func (c *client) Close() error {
 	c.close(nil)
-	return c.err
+	cause := context.Cause(c.ctx)
+	if !errors2.Is(cause, context.Canceled) {
+		return cause
+	}
+	return nil
 }
 
 func (c *client) ReceivedBytes() uint64 {
@@ -172,13 +152,17 @@ func (c *client) SentBytes() uint64 {
 	return c.sentBytes.Load()
 }
 
-func (c *client) DatagramRequest(requestLength uint64, responseNum uint32, responseLength uint32, responseDelay time.Duration) error {
-	binary.LittleEndian.PutUint32(c.datagramBuf[:], responseNum)
-	binary.LittleEndian.PutUint32(c.datagramBuf[4:], responseLength)
-	binary.LittleEndian.PutUint32(c.datagramBuf[8:], uint32(responseDelay.Milliseconds()))
-	err := c.conn.SendMessage(c.datagramBuf[:common.Max(12, requestLength)])
-	if err != nil {
-		return err
+func (c *client) runDatagramReceiveLoop() error {
+	defer close(c.datagramReceiveLoopDone)
+	for {
+		buf, err := c.conn.ReceiveDatagram(c.ctx)
+		if err != nil {
+			return err
+		}
+		messageType := perf.MessageType(buf[0])
+		switch messageType {
+		default:
+			panic("unexpected message type")
+		}
 	}
-	return nil
 }

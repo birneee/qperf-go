@@ -4,7 +4,10 @@ import (
 	"crypto/tls"
 	"encoding/base64"
 	"fmt"
+	"github.com/quic-go/quic-go"
+	qlog2 "github.com/quic-go/quic-go/qlog"
 	"github.com/urfave/cli/v2"
+	"net"
 	"os"
 	"qperf-go/client"
 	"qperf-go/common"
@@ -38,37 +41,6 @@ func clientCommand(config *client.Config) *cli.Command {
 				Name:  "print-raw",
 				Usage: "output raw statistics, don't calculate metric prefixes",
 			},
-			&cli.StringFlag{
-				Name:  "qlog",
-				Usage: "output path of qlog file. {odcid} is automatically substituted.",
-				Action: func(context *cli.Context, s string) error {
-					config.QlogPathTemplate = s
-					return nil
-				},
-			},
-			&cli.StringFlag{
-				Name: "qlog-level",
-				Aliases: []string{
-					"ql",
-				},
-				Usage:      "verbosity of qlog output. e.g. none, info, full",
-				Value:      "info",
-				HasBeenSet: true,
-				Action: func(context *cli.Context, s string) error {
-					switch s {
-					case "none":
-						config.QlogConfig.ExcludeEventsByDefault = true
-					case "info":
-						config.QlogConfig.ExcludeEventsByDefault = true
-						config.QlogConfig.SetIncludedEvents(common.QlogLevelInfoEvents)
-					case "full":
-						config.QlogConfig.ExcludeEventsByDefault = false
-					default:
-						return fmt.Errorf("unsupported qlog-level: %s", s)
-					}
-					return nil
-				},
-			},
 			&cli.UintFlag{
 				Name:  "qlog-queue",
 				Usage: "set size of the qlog event in-memory queue",
@@ -78,20 +50,19 @@ func clientCommand(config *client.Config) *cli.Command {
 					return nil
 				},
 			},
-			&cli.Float64Flag{
-				Name:  "t",
-				Usage: "run for this many seconds",
-				Value: client.DefaultProbeTime.Seconds(),
-				Action: func(context *cli.Context, f float64) error {
-					config.ProbeTime = time.Duration(f * float64(time.Second))
-					return nil
-				},
+			&cli.DurationFlag{
+				Name:        "time",
+				Aliases:     []string{"t"},
+				Usage:       "run for this long",
+				Value:       client.DefaultProbeTime,
+				Destination: &config.ProbeTime,
 			},
-			&cli.Float64Flag{
-				Name:    "report-interval",
-				Aliases: []string{"i"},
-				Usage:   "seconds between each statistics report",
-				Value:   client.DefaultReportInterval.Seconds(),
+			&cli.DurationFlag{
+				Name:        "report-interval",
+				Aliases:     []string{"i"},
+				Usage:       "seconds between each statistics report",
+				Value:       client.DefaultReportInterval,
+				Destination: &config.ReportInterval,
 			},
 			&cli.StringSliceFlag{
 				Name:  "cert-pool",
@@ -104,30 +75,30 @@ func clientCommand(config *client.Config) *cli.Command {
 			&cli.StringFlag{
 				Name:       "initial-receive-window",
 				Usage:      "the initial stream-level receive window, in bytes (the connection-level window is 1.5 times higher)",
-				Value:      "512KiB",
+				Value:      "768KiB",
 				HasBeenSet: true,
 				Action: func(context *cli.Context, s string) error {
-					var err error
-					config.QuicConfig.InitialStreamReceiveWindow, err = common.ParseByteCountWithUnit(s)
+					win, err := common.ParseByteCountWithUnit(s)
 					if err != nil {
 						return fmt.Errorf("failed to parse receive-window: %w", err)
 					}
-					config.QuicConfig.InitialConnectionReceiveWindow = uint64(float64(config.QuicConfig.InitialStreamReceiveWindow) * common.ConnectionFlowControlMultiplier)
+					config.QuicConfig.InitialStreamReceiveWindow = win
+					config.QuicConfig.InitialConnectionReceiveWindow = win
 					return nil
 				},
 			},
 			&cli.StringFlag{
 				Name:       "max-receive-window",
 				Usage:      "the maximum stream-level receive window, in bytes (the connection-level window is 1.5 times higher)",
-				Value:      "6MiB",
+				Value:      "9MiB",
 				HasBeenSet: true,
 				Action: func(context *cli.Context, s string) error {
-					var err error
-					config.QuicConfig.MaxStreamReceiveWindow, err = common.ParseByteCountWithUnit(s)
+					win, err := common.ParseByteCountWithUnit(s)
 					if err != nil {
 						return fmt.Errorf("failed to parse max-receive-window: %w", err)
 					}
-					config.QuicConfig.MaxConnectionReceiveWindow = uint64(float64(config.QuicConfig.MaxStreamReceiveWindow) * common.ConnectionFlowControlMultiplier)
+					config.QuicConfig.MaxStreamReceiveWindow = win
+					config.QuicConfig.MaxConnectionReceiveWindow = win
 					return nil
 				},
 			},
@@ -142,18 +113,24 @@ func clientCommand(config *client.Config) *cli.Command {
 			},
 			&cli.BoolFlag{
 				Name:  "receive-stream",
-				Usage: "stream infinite data from server. Disable by --receive-stream=0",
+				Usage: "stream data from server. Disable by --receive-stream=0",
 				Value: false,
 				Action: func(ctx *cli.Context, b bool) error {
+					if ctx.IsSet("response-length") {
+						return fmt.Errorf("either set receive-stream or response-length")
+					}
 					config.ReceiveInfiniteStream = b
 					return nil
 				},
 			},
 			&cli.BoolFlag{
 				Name:  "send-stream",
-				Usage: "stream infinite data to server. Disable by --send-stream=0",
+				Usage: "stream data to server. Disable by --send-stream=0",
 				Value: false,
 				Action: func(ctx *cli.Context, b bool) error {
+					if ctx.IsSet("request-length") {
+						return fmt.Errorf("either set send-stream or request-length")
+					}
 					config.SendInfiniteStream = b
 					return nil
 				},
@@ -229,61 +206,81 @@ func clientCommand(config *client.Config) *cli.Command {
 				Usage: "use the minimum idle timeout of 3 PTOs (RFC 9000 10.1)",
 				Value: false,
 				Action: func(context *cli.Context, b bool) error {
-					config.QuicConfig.MaxIdleTimeout = time.Nanosecond
-					return nil
-				},
-			},
-			&cli.StringFlag{
-				Name:  "request-length",
-				Usage: "bytes sent per stream request",
-				Value: "0",
-				Action: func(context *cli.Context, v string) error {
-					var err error
-					config.RequestLength, err = common.ParseByteCountWithUnit(v)
-					if err != nil {
-						return err
-					}
-					return nil
-				},
-			},
-			&cli.Float64Flag{
-				Name:  "request-interval",
-				Usage: "milliseconds after which a new request is sent; 0 for a single request",
-				Value: 0,
-				Action: func(context *cli.Context, v float64) error {
-					config.RequestInterval = time.Duration(v * float64(time.Millisecond))
-					return nil
-				},
-			},
-			&cli.StringFlag{
-				Name:  "response-length",
-				Usage: "bytes received per stream response",
-				Value: "0",
-				Action: func(context *cli.Context, v string) error {
-					var err error
-					config.ResponseLength, err = common.ParseByteCountWithUnit(v)
-					if err != nil {
-						return err
+					if b {
+						config.QuicConfig.MaxIdleTimeout = time.Nanosecond
 					}
 					return nil
 				},
 			},
 			&cli.Uint64Flag{
-				Name:  "response-delay",
-				Usage: "milliseconds that the server waits until responding to received requests",
+				Name:  "request-length",
+				Usage: "bytes sent per stream request",
 				Value: 0,
 				Action: func(context *cli.Context, v uint64) error {
-					config.ResponseDelay = time.Duration(v) * time.Millisecond
+					config.RequestLength = v
 					return nil
 				},
 			},
-			&cli.Float64Flag{
-				Name:       "deadline",
-				Usage:      "milliseconds after which to cancel sending the request and receiving its response",
-				Value:      float64(time.Hour / time.Millisecond),
+			&cli.DurationFlag{
+				Name:        "request-interval",
+				Usage:       "time after which a new request is sent",
+				Value:       0,
+				Destination: &config.RequestInterval,
+			},
+			&cli.Uint64Flag{
+				Name: "request-number",
+				Aliases: []string{
+					"n",
+				},
+				Usage:      "the number of requests to send",
 				HasBeenSet: true,
-				Action: func(context *cli.Context, v float64) error {
-					config.Deadline = time.Duration(v * float64(time.Millisecond))
+				Action: func(context *cli.Context, i uint64) error {
+					config.NumRequests = i
+					return nil
+				},
+			},
+			&cli.Uint64Flag{
+				Name:  "response-length",
+				Usage: "bytes received per stream response",
+				Value: 0,
+				Action: func(context *cli.Context, v uint64) error {
+					config.ResponseLength = v
+					return nil
+				},
+			},
+			&cli.DurationFlag{
+				Name:        "response-delay",
+				Usage:       "time that the server waits until responding to received requests",
+				Value:       0,
+				Destination: &config.ResponseDelay,
+			},
+			&cli.DurationFlag{
+				Name:        "response-deadline",
+				Usage:       "time after which to cancel sending the request and receiving its response",
+				Value:       client.DefaultDeadline,
+				Destination: &config.ResponseDeadline,
+			},
+			&cli.DurationFlag{
+				Name:        "request-deadline",
+				Usage:       "time after which to cancel sending the request",
+				Value:       client.DefaultDeadline,
+				Destination: &config.RequestDeadline,
+			},
+			&cli.BoolFlag{
+				Name:  "gso",
+				Usage: "enable generic segmentation offload",
+				Value: false,
+				Action: func(context *cli.Context, b bool) error {
+					var err error
+					if b {
+						err = os.Setenv("QUIC_GO_ENABLE_GSO", "1")
+
+					} else {
+						err = os.Unsetenv("QUIC_GO_ENABLE_GSO")
+					}
+					if err != nil {
+						return err
+					}
 					return nil
 				},
 			},
@@ -303,7 +300,7 @@ func clientCommand(config *client.Config) *cli.Command {
 					config.SendInfiniteStream ||
 					config.ReceiveDatagram ||
 					config.SendDatagram ||
-					config.RequestInterval != 0 {
+					(config.RequestInterval != 0 && config.NumRequests == 0) {
 					config.ProbeTime = client.DefaultProbeTime
 				} else {
 					config.ProbeTime = client.MaxProbeTime // stop after transaction not after time
@@ -315,7 +312,6 @@ func clientCommand(config *client.Config) *cli.Command {
 			config.QuicConfig.MaxConnectionReceiveWindow = common.Max(config.QuicConfig.InitialConnectionReceiveWindow, config.QuicConfig.MaxConnectionReceiveWindow)
 
 			config.TimeToFirstByteOnly = c.Bool("ttfb")
-			config.ReportInterval = time.Duration(c.Float64("report-interval") * float64(time.Second))
 			client := client.Dial(config)
 			<-client.Context().Done()
 			return nil
@@ -337,34 +333,6 @@ func serverCommand(config *server.Config) *cli.Command {
 				Name:  "port",
 				Usage: "port to listen on",
 				Value: perf.DefaultServerPort,
-			},
-			&cli.StringFlag{
-				Name:  "qlog",
-				Usage: "output path of qlog file. {odcid} is automatically substituted.",
-				Action: func(context *cli.Context, s string) error {
-					config.QlogPathTemplate = s
-					return nil
-				},
-			},
-			&cli.StringFlag{
-				Name:       "qlog-level",
-				Usage:      "verbosity of qlog output. e.g. none, info, full",
-				Value:      "info",
-				HasBeenSet: true,
-				Action: func(context *cli.Context, s string) error {
-					switch s {
-					case "none":
-						config.QlogConfig.ExcludeEventsByDefault = true
-					case "info":
-						config.QlogConfig.ExcludeEventsByDefault = true
-						config.QlogConfig.SetIncludedEvents(common.QlogLevelInfoEvents)
-					case "full":
-						config.QlogConfig.ExcludeEventsByDefault = false
-					default:
-						return fmt.Errorf("unsupported qlog-level: %s", s)
-					}
-					return nil
-				},
 			},
 			&cli.UintFlag{
 				Name:  "qlog-queue",
@@ -390,37 +358,47 @@ func serverCommand(config *server.Config) *cli.Command {
 					if err != nil {
 						return err
 					}
-					config.TlsConfig.Certificates = []tls.Certificate{cert}
+					config.PerfConfig.TlsConfig.Certificates = []tls.Certificate{cert}
 					return nil
 				},
 			},
 			&cli.StringFlag{
 				Name:       "initial-receive-window",
 				Usage:      "the initial stream-level receive window, in bytes (the connection-level window is 1.5 times higher)",
-				Value:      "512KiB",
+				Value:      "768KiB",
 				HasBeenSet: true,
 				Action: func(context *cli.Context, s string) error {
-					var err error
-					config.QuicConfig.InitialStreamReceiveWindow, err = common.ParseByteCountWithUnit(s)
+					win, err := common.ParseByteCountWithUnit(s)
 					if err != nil {
 						return fmt.Errorf("failed to parse receive-window: %w", err)
 					}
-					config.QuicConfig.InitialConnectionReceiveWindow = uint64(float64(config.QuicConfig.InitialStreamReceiveWindow) * common.ConnectionFlowControlMultiplier)
+					config.PerfConfig.QuicConfig.InitialStreamReceiveWindow = win
+					config.PerfConfig.QuicConfig.InitialConnectionReceiveWindow = win
 					return nil
 				},
 			},
 			&cli.StringFlag{
 				Name:       "max-receive-window",
 				Usage:      "the maximum stream-level receive window, in bytes (the connection-level window is 1.5 times higher)",
-				Value:      "6MiB",
+				Value:      "9MiB",
 				HasBeenSet: true,
 				Action: func(context *cli.Context, s string) error {
-					var err error
-					config.QuicConfig.MaxStreamReceiveWindow, err = common.ParseByteCountWithUnit(s)
+					win, err := common.ParseByteCountWithUnit(s)
 					if err != nil {
 						return fmt.Errorf("failed to parse max-receive-window: %w", err)
 					}
-					config.QuicConfig.MaxConnectionReceiveWindow = uint64(float64(config.QuicConfig.MaxStreamReceiveWindow) * common.ConnectionFlowControlMultiplier)
+					config.PerfConfig.QuicConfig.MaxStreamReceiveWindow = win
+					config.PerfConfig.QuicConfig.MaxConnectionReceiveWindow = win
+					return nil
+				},
+			},
+			&cli.BoolFlag{
+				Name:       "0rtt-state-request",
+				Usage:      "use 0-rtt connection for requests to state server",
+				Value:      false,
+				HasBeenSet: true,
+				Action: func(context *cli.Context, b bool) error {
+					config.Use0RTTStateRequest = b
 					return nil
 				},
 			},
@@ -436,24 +414,149 @@ func serverCommand(config *server.Config) *cli.Command {
 					if len(key) != 32 {
 						return fmt.Errorf("failed to parse session ticket key: must be 32 byte")
 					}
-					config.TlsConfig.SetSessionTicketKeys([][32]byte{([32]byte)(key)})
+					array := ([32]byte)(key)
+					config.SessionTicketKey = &array
+					return nil
+				},
+			},
+			&cli.StringFlag{
+				Name:  "address-token-key",
+				Usage: "QUIC address token key used for 0-RTT; value must be 32 byte and base64 encoded; if not set a random key is generated",
+				Value: "",
+				Action: func(ctx *cli.Context, s string) error {
+					key, err := base64.StdEncoding.DecodeString(s)
+					if err != nil {
+						return fmt.Errorf("failed to parse session ticket key: %s", err)
+					}
+					if len(key) != 32 {
+						return fmt.Errorf("failed to parse session ticket key: must be 32 byte")
+					}
+					config.AddressTokenKey = (*quic.TokenGeneratorKey)(key)
+					return nil
+				},
+			},
+			&cli.StringFlag{
+				Name:  "stateless-reset-key",
+				Usage: "Key used to generate stateless resets tokens; value must be 32 byte and base64 encoded; if not set stateless reset is disabled",
+				Action: func(ctx *cli.Context, s string) error {
+					key, err := base64.StdEncoding.DecodeString(s)
+					if err != nil {
+						return fmt.Errorf("failed to parse stateless reset key: %s", err)
+					}
+					if len(key) != 32 {
+						return fmt.Errorf("failed to parse stateless reset key: must be 32 byte")
+					}
+					config.StatelessResetKey = (*quic.StatelessResetKey)(key)
+					return nil
+				},
+			},
+			&cli.StringFlag{
+				Name:  "router-key",
+				Usage: "Key used for connection id routing; value must be 32 byte and base64 encoded; if not set connection id routing is disabled",
+				Action: func(ctx *cli.Context, s string) error {
+					key, err := base64.StdEncoding.DecodeString(s)
+					if err != nil {
+						return fmt.Errorf("failed to parse stateless reset key: %s", err)
+					}
+					if len(key) != 32 {
+						return fmt.Errorf("failed to parse stateless reset key: must be 32 byte")
+					}
+					config.RouterKey = (*[32]byte)(key)
+					return nil
+				},
+			},
+			&cli.StringFlag{
+				Name:       "log-label",
+				Value:      "server",
+				HasBeenSet: true,
+			},
+			&cli.StringFlag{
+				Name:  "server-id",
+				Usage: "tbd",
+				Action: func(ctx *cli.Context, s string) error {
+					if !ctx.IsSet("router-key") {
+						return fmt.Errorf("server-id option requires router-key option")
+					}
+					var err error
+					s = common.AppendPortIfNotSpecified(s, perf.DefaultServerPort)
+					config.ServerID, err = net.ResolveUDPAddr("udp", s)
+					if err != nil {
+						return err
+					}
+					return nil
+				},
+			},
+			&cli.BoolFlag{
+				Name:  "gso",
+				Usage: "enable generic segmentation offload",
+				Value: false,
+				Action: func(context *cli.Context, b bool) error {
+					var err error
+					if b {
+						err = os.Setenv("QUIC_GO_ENABLE_GSO", "1")
+
+					} else {
+						err = os.Unsetenv("QUIC_GO_ENABLE_GSO")
+					}
+					if err != nil {
+						return err
+					}
+					return nil
+				},
+			},
+			&cli.IntFlag{
+				Name:  "max-incoming-streams",
+				Usage: "maximum allowed number of incoming streams",
+				Action: func(ctx *cli.Context, i int) error {
+					config.PerfConfig.QuicConfig.MaxIncomingStreams = int64(i)
+					return nil
+				},
+			},
+			&cli.DurationFlag{
+				Name:  "pile-interval",
+				Usage: "the interval to trigger a pile event;\npile up received packets before processing;\n",
+				Action: func(ctx *cli.Context, d time.Duration) error {
+					if !ctx.IsSet("pile-duration") {
+						return fmt.Errorf("pile-interval requires pile-duration")
+					}
+					config.PileInterval = d
+					return nil
+				},
+			},
+			&cli.DurationFlag{
+				Name:  "pile-duration",
+				Usage: "the duration of a pile event; Pile up received packets before processing.",
+				Action: func(ctx *cli.Context, d time.Duration) error {
+					if !ctx.IsSet("pile-interval") {
+						return fmt.Errorf("pile-duration requires pile-interval")
+					}
+					config.PileDuration = d
 					return nil
 				},
 			},
 		},
 		Action: func(c *cli.Context) error {
-			if config.TlsConfig.Certificates == nil {
+			if config.PerfConfig.TlsConfig.Certificates == nil {
 				fmt.Printf("generate self signed TLS certificate\n")
-				config.TlsConfig.Certificates = []tls.Certificate{common.GenerateCert()}
+				config.PerfConfig.TlsConfig.Certificates = []tls.Certificate{common.GenerateCert()}
 			}
 
-			config.QuicConfig.MaxStreamReceiveWindow = common.Max(config.QuicConfig.InitialStreamReceiveWindow, config.QuicConfig.MaxStreamReceiveWindow)
+			win := common.Max(config.PerfConfig.QuicConfig.InitialStreamReceiveWindow, config.PerfConfig.QuicConfig.MaxStreamReceiveWindow)
+			config.PerfConfig.QuicConfig.MaxStreamReceiveWindow = win
+			config.PerfConfig.QuicConfig.MaxConnectionReceiveWindow = win
 
-			config.QuicConfig.MaxConnectionReceiveWindow = common.Max(config.QuicConfig.InitialConnectionReceiveWindow, config.QuicConfig.MaxConnectionReceiveWindow)
+			qlogLabel := c.String("log-label")
+			config.PerfConfig.QuicConfig.Tracer = qlog2.DefaultConnectionTracer
+			config.PerfConfig.QlogLabel = fmt.Sprintf("qperf_%s", qlogLabel)
 
-			server := server.Listen(fmt.Sprintf("%s:%d", c.String("addr"), c.Int("port")),
+			addr := common.AppendPortIfNotSpecified(c.String("addr"), c.Int("port"))
+			server, err := server.Listen(
+				addr,
 				config,
 			)
+			if err != nil {
+				return err
+			}
 			<-server.Context().Done()
 			return nil
 		},
@@ -490,6 +593,8 @@ func main() {
 				},
 			},
 		},
+		CustomAppHelpTemplate: cli.AppHelpTemplate +
+			"   $QLOGDIR\toutput directory for qlog files\n",
 		Commands: []*cli.Command{
 			clientCommand(clientConfig),
 			serverCommand(serverConfig),

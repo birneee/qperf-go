@@ -3,37 +3,43 @@ package common
 import (
 	"context"
 	"crypto/tls"
-	"errors"
+	"crypto/x509"
 	"github.com/quic-go/quic-go"
+	"github.com/quic-go/quic-go/logging"
 )
 
 // PingToGatherSessionTicketAndToken establishes a new QUIC connection.
 // As soon as the session ticket and the token is received, the connection is closed.
 // This function can be used to prepare for 0-RTT
 // TODO add timeout
-func PingToGatherSessionTicketAndToken(ctx context.Context, addr string, tlsConf *tls.Config, config *quic.Config) error {
-	if tlsConf.ClientSessionCache == nil {
-		return errors.New("session cache is nil")
+func PingToGatherSessionTicketAndToken(
+	ctx context.Context,
+	addr string,
+	sessionCache tls.ClientSessionCache,
+	tokenStore quic.TokenStore,
+	alpn string,
+	certPool *x509.CertPool,
+	serverName string,
+	tracer func(context.Context, logging.Perspective, logging.ConnectionID) *logging.ConnectionTracer,
+) error {
+	tlsConf := &tls.Config{
+		ClientSessionCache: NewSingleSessionCache(),
+		NextProtos:         []string{alpn},
+		RootCAs:            certPool,
+		ServerName:         serverName,
 	}
-	if config.TokenStore == nil {
-		panic("session cache is nil")
+	quicConf := &quic.Config{
+		TokenStore: NewSingleTokenStore(),
+		Tracer:     tracer,
 	}
 
-	singleSessionCache := NewSingleSessionCache()
-	singleTokenStore := NewSingleTokenStore()
-
-	tmpTlsConf := tlsConf.Clone()
-	tmpTlsConf.ClientSessionCache = singleSessionCache
-	tmpConfig := config.Clone()
-	tmpConfig.TokenStore = singleTokenStore
-
-	connection, err := quic.DialAddr(ctx, addr, tmpTlsConf, tmpConfig)
+	connection, err := quic.DialAddr(ctx, addr, tlsConf, quicConf)
 	if err != nil {
 		return err
 	}
 
-	tlsConf.ClientSessionCache.Put(singleSessionCache.Await())
-	config.TokenStore.Put(singleTokenStore.Await())
+	sessionCache.Put(tlsConf.ClientSessionCache.(*SingleSessionCache).Await())
+	tokenStore.Put(quicConf.TokenStore.(*SingleTokenStore).Await())
 
 	err = connection.CloseWithError(quic.ApplicationErrorCode(0), "cancel")
 	if err != nil {

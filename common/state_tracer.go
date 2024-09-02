@@ -7,87 +7,73 @@ import (
 )
 
 type StateTracer struct {
-	logging.NullTracer
 	State *State
 }
 
-func (a StateTracer) TracerForConnection(_ context.Context, _ logging.Perspective, _ logging.ConnectionID) logging.ConnectionTracer {
-	return StateConnectionTracer{
-		State: a.State,
-	}
-}
-
-type StateConnectionTracer struct {
-	logging.NullConnectionTracer
-	State *State
-}
-
-func NewStateTracer(state *State) func(ctx context.Context, perspective logging.Perspective, connectionID logging.ConnectionID) logging.ConnectionTracer {
-	return func(ctx context.Context, perspective logging.Perspective, connectionID logging.ConnectionID) logging.ConnectionTracer {
-		return StateConnectionTracer{
-			State: state,
-		}
-	}
-}
-
-func (n StateConnectionTracer) ReceivedLongHeaderPacket(*logging.ExtendedHeader, logging.ByteCount, []logging.Frame) {
-	n.State.AddReceivedPackets(1)
-}
-
-func (n StateConnectionTracer) ReceivedShortHeaderPacket(_ *logging.ShortHeader, _ logging.ByteCount, frames []logging.Frame) {
-	n.State.AddReceivedPackets(1)
-	for _, frame := range frames {
-		switch frame := frame.(type) {
-		case *logging.HandshakeDoneFrame:
-			n.State.SetHandshakeConfirmedTime()
-			n.State.handshakeConfirmedCancel()
-		case *logging.StreamFrame:
-			if frame.Offset == 0 {
-				n.State.MaybeSetFirstByteReceived()
+func (t StateTracer) TracerForConnection(_ context.Context, _ logging.Perspective, _ logging.ConnectionID) *logging.ConnectionTracer {
+	return &logging.ConnectionTracer{
+		ReceivedLongHeaderPacket: func(_ *logging.ExtendedHeader, _ logging.ByteCount, _ logging.ECN, _ []logging.Frame) {
+			t.State.AddReceivedPackets(1)
+		},
+		ReceivedShortHeaderPacket: func(_ *logging.ShortHeader, _ logging.ByteCount, _ logging.ECN, frames []logging.Frame) {
+			t.State.AddReceivedPackets(1)
+			for _, frame := range frames {
+				switch frame := frame.(type) {
+				case *logging.HandshakeDoneFrame:
+					t.State.SetHandshakeConfirmedTime()
+					t.State.handshakeConfirmedCancel()
+				case *logging.StreamFrame:
+					if frame.Offset == 0 {
+						t.State.MaybeSetFirstByteReceived()
+					}
+				case *logging.DatagramFrame:
+					t.State.AddReceivedDatagramBytes(frame.Length)
+				}
 			}
-		case *logging.DatagramFrame:
-			n.State.AddReceivedDatagramBytes(frame.Length)
-		}
-	}
-}
-
-func (n StateConnectionTracer) SentLongHeaderPacket(_ *logging.ExtendedHeader, _ logging.ByteCount, _ *logging.AckFrame, frames []logging.Frame) {
-	for _, frame := range frames {
-		switch frame := frame.(type) {
-		case *logging.StreamFrame:
-			if frame.Offset == 0 {
-				n.State.MaybeSetFirstByteSent()
+		},
+		SentLongHeaderPacket: func(header *logging.ExtendedHeader, count logging.ByteCount, ecn logging.ECN, frame *logging.AckFrame, frames []logging.Frame) {
+			for _, frame := range frames {
+				switch frame := frame.(type) {
+				case *logging.StreamFrame:
+					if frame.Offset == 0 {
+						t.State.MaybeSetFirstByteSent()
+					}
+				case *logging.DatagramFrame:
+					t.State.AddSentDatagramBytes(frame.Length)
+				}
 			}
-		case *logging.DatagramFrame:
-			n.State.AddSentDatagramBytes(frame.Length)
-		}
-	}
-}
-
-func (n StateConnectionTracer) SentShortHeaderPacket(_ *logging.ShortHeader, _ logging.ByteCount, _ *logging.AckFrame, frames []logging.Frame) {
-	for _, frame := range frames {
-		switch frame := frame.(type) {
-		case *logging.StreamFrame:
-			if frame.Offset == 0 {
-				n.State.MaybeSetFirstByteSent()
+		},
+		SentShortHeaderPacket: func(header *logging.ShortHeader, count logging.ByteCount, ecn logging.ECN, frame *logging.AckFrame, frames []logging.Frame) {
+			for _, frame := range frames {
+				switch frame := frame.(type) {
+				case *logging.StreamFrame:
+					if frame.Offset == 0 {
+						t.State.MaybeSetFirstByteSent()
+					}
+				case *logging.DatagramFrame:
+					t.State.AddSentDatagramBytes(frame.Length)
+				}
 			}
-		case *logging.DatagramFrame:
-			n.State.AddSentDatagramBytes(frame.Length)
-		}
+		},
+		UpdatedMetrics: func(rttStats *logging.RTTStats, cwnd, bytesInFlight logging.ByteCount, packetsInFlight int) {
+			t.State.AddRttStats(rttStats)
+
+		},
+		LostPacket: func(level logging.EncryptionLevel, number logging.PacketNumber, reason logging.PacketLossReason) {
+			t.State.AddLostPackets(1)
+
+		},
+		UpdatedKeyFromTLS: func(level logging.EncryptionLevel, perspective logging.Perspective) {
+			if level == logging.Encryption1RTT {
+				now := time.Now()
+				t.State.SetHandshakeCompletedTime(now)
+			}
+		},
 	}
 }
 
-func (n StateConnectionTracer) UpdatedMetrics(rttStats *logging.RTTStats, _, _ logging.ByteCount, _ int) {
-	n.State.AddRttStats(rttStats)
-}
-
-func (n StateConnectionTracer) LostPacket(_ logging.EncryptionLevel, _ logging.PacketNumber, _ logging.PacketLossReason) {
-	n.State.AddLostPackets(1)
-}
-
-func (n StateConnectionTracer) UpdatedKeyFromTLS(encLevel logging.EncryptionLevel, _ logging.Perspective) {
-	if encLevel == logging.Encryption1RTT {
-		now := time.Now()
-		n.State.SetHandshakeCompletedTime(now)
+func NewStateTracer(state *State) *StateTracer {
+	return &StateTracer{
+		State: state,
 	}
 }

@@ -51,7 +51,7 @@ func (s *server) run() error {
 		if err != nil {
 			s.close(err)
 		}
-		NewConnection(quicConn)
+		NewConnection(quicConn, s.config)
 	}
 }
 

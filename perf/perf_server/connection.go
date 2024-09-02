@@ -2,17 +2,15 @@ package perf_server
 
 import (
 	"context"
-	"encoding/binary"
 	"github.com/quic-go/quic-go"
 	"qperf-go/errors"
-	"qperf-go/perf"
 	"sync"
 	"time"
 )
 
 type Connection interface {
 	Context() context.Context
-	TracingID() uint64
+	TracingID() quic.ConnectionTracingID
 	// Close connection without error
 	Close()
 	QuicConn() quic.Connection
@@ -28,29 +26,22 @@ type connection struct {
 	requestReceiveStreams map[quic.StreamID]RequestReceiveStream
 	// only access while holding mutex
 	responseSendStreams map[quic.StreamID]ResponseSendStream
-	datagramSendBuf     [perf.MaxDatagramResponseLength]byte
+	config              *Config
 }
 
-func NewConnection(quicConnection quic.EarlyConnection) Connection {
+func NewConnection(quicConnection quic.EarlyConnection, config *Config) Connection {
 	c := &connection{
 		quicConnection:        quicConnection,
 		requestReceiveStreams: map[quic.StreamID]RequestReceiveStream{},
 		responseSendStreams:   map[quic.StreamID]ResponseSendStream{},
+		config:                config,
 	}
 	go func() {
-		err := c.runStreamLoop()
+		err := c.run()
 		if err != nil {
 			c.close(err)
 		}
 	}()
-	if quicConnection.ConnectionState().SupportsDatagrams {
-		go func() {
-			err := c.runDatagramLoop()
-			if err != nil {
-				c.close(err)
-			}
-		}()
-	}
 	return c
 }
 
@@ -59,16 +50,30 @@ func (c *connection) newRequestReceiveStream(stream quic.Stream) (RequestReceive
 	if err != nil {
 		return nil, err
 	}
+	return reqStream, c.handleRequestReceiveStream(reqStream, stream)
+}
+
+func (c *connection) handleRequestReceiveStream(reqStream RequestReceiveStream, quicStream quic.Stream) error {
 	c.mutex.Lock()
 	c.requestReceiveStreams[reqStream.StreamID()] = reqStream
 	c.mutex.Unlock()
 	go func() {
-		<-reqStream.Context().Done()
-		c.mutex.Lock()
-		delete(c.requestReceiveStreams, reqStream.StreamID())
-		c.mutex.Unlock()
+		select {
+		case <-reqStream.Context().Done():
+			// remove if failed, otherwise request is removed after response
+			if !reqStream.Success() || reqStream.ResponseLength() == 0 {
+				c.mutex.Lock()
+				delete(c.requestReceiveStreams, reqStream.StreamID())
+				c.mutex.Unlock()
+				return
+			}
+			_, err := c.newResponseSendStream(quicStream, reqStream.ResponseLength(), reqStream.ResponseDelay())
+			if err != nil {
+				c.close(err)
+			}
+		}
 	}()
-	return reqStream, nil
+	return nil
 }
 
 func (c *connection) newResponseSendStream(stream quic.Stream, length uint64, delay time.Duration) (ResponseSendStream, error) {
@@ -77,59 +82,26 @@ func (c *connection) newResponseSendStream(stream quic.Stream, length uint64, de
 	c.responseSendStreams[respStream.StreamID()] = respStream
 	c.mutex.Unlock()
 	go func() {
-		<-respStream.Context().Done()
-		c.mutex.Lock()
-		delete(c.responseSendStreams, respStream.StreamID())
-		c.mutex.Unlock()
+		select {
+		case <-respStream.Context().Done():
+			c.mutex.Lock()
+			delete(c.requestReceiveStreams, respStream.StreamID())
+			delete(c.responseSendStreams, respStream.StreamID())
+			c.mutex.Unlock()
+		}
 	}()
 	return respStream, nil
 }
 
-func (c *connection) runStreamLoop() error {
+func (c *connection) run() error {
 	for {
 		stream, err := c.quicConnection.AcceptStream(c.Context())
 		if err != nil {
 			return err
 		}
-		reqStream, err := c.newRequestReceiveStream(stream)
+		_, err = c.newRequestReceiveStream(stream)
 		if err != nil {
 			return err
-		}
-		go func() {
-			<-reqStream.Context().Done()
-			if !reqStream.Success() {
-				return // probably connection closed or deadline exceeded
-			}
-			if reqStream.ResponseLength() != 0 {
-				_, err := c.newResponseSendStream(stream, reqStream.ResponseLength(), reqStream.ResponseDelay())
-				if err != nil {
-					c.close(err)
-				}
-			}
-		}()
-	}
-}
-
-func (c *connection) runDatagramLoop() error {
-	for {
-		msg, err := c.quicConnection.ReceiveMessage(c.Context())
-		if err != nil {
-			return err
-		}
-		responseNum := binary.LittleEndian.Uint32(msg[:4])
-		responseLength := binary.LittleEndian.Uint32(msg[4:8])
-		responseDelay := time.Duration(binary.LittleEndian.Uint32(msg[8:12])) * time.Millisecond
-		if responseNum != 0 && responseLength != 0 {
-			go func() {
-				time.Sleep(responseDelay)
-				for i := uint32(0); i < responseNum; i++ {
-					err := c.quicConnection.SendMessage(c.datagramSendBuf[:responseLength])
-					if err != nil {
-						c.close(err)
-						break
-					}
-				}
-			}()
 		}
 	}
 }
@@ -154,8 +126,8 @@ func (c *connection) Context() context.Context {
 	return c.quicConnection.Context()
 }
 
-func (c *connection) TracingID() uint64 {
-	return c.quicConnection.Context().Value(quic.ConnectionTracingKey).(uint64)
+func (c *connection) TracingID() quic.ConnectionTracingID {
+	return c.quicConnection.Context().Value(quic.ConnectionTracingKey).(quic.ConnectionTracingID)
 }
 
 func (c *connection) QuicConn() quic.Connection {

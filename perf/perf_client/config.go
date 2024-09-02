@@ -4,6 +4,7 @@ import (
 	"crypto/tls"
 	"github.com/quic-go/quic-go"
 	"github.com/quic-go/quic-go/logging"
+	"qperf-go/common/qlog"
 	"qperf-go/perf"
 )
 
@@ -12,6 +13,7 @@ type Config struct {
 	QuicConfig      *quic.Config
 	OnStreamSend    func(id quic.StreamID, count logging.ByteCount)
 	OnStreamReceive func(id quic.StreamID, count logging.ByteCount)
+	Qlog            qlog.Writer
 }
 
 func (c *Config) Populate() *Config {

@@ -27,9 +27,14 @@ type requestSendStream struct {
 	responseDelay  time.Duration
 	sentBytes      atomic.Uint64
 	client         *client
-	closeOnce      sync.Once
 	ctx            context.Context
 	cancelCtx      context.CancelCauseFunc
+	closeOnce      sync.Once
+	err            error
+}
+
+func (s *requestSendStream) Context() context.Context {
+	return s.ctx
 }
 
 func newRequestSendStream(quicStream quic.SendStream, requestLength uint64, responseLength uint64, responseDelay time.Duration, client *client) RequestSendStream {
@@ -43,7 +48,7 @@ func newRequestSendStream(quicStream quic.SendStream, requestLength uint64, resp
 	s.ctx, s.cancelCtx = context.WithCancelCause(client.Context())
 	go func() {
 		err := s.run()
-		s.cancelCtx(err)
+		s.close(err)
 	}()
 	return s
 }
@@ -74,13 +79,28 @@ func (s *requestSendStream) SentBytes() uint64 {
 
 func (s *requestSendStream) Cancel() {
 	s.quicStream.CancelWrite(perf.DeadlineExceededStreamErrorCode)
-	s.cancelCtx(&quic.StreamError{
+	s.close(&quic.StreamError{
 		StreamID:  s.quicStream.StreamID(),
 		ErrorCode: perf.DeadlineExceededStreamErrorCode,
 		Remote:    false,
 	})
 }
 
-func (s *requestSendStream) Context() context.Context {
-	return s.ctx
+func (s *requestSendStream) close(err error) {
+	s.closeOnce.Do(func() {
+		s.err = err
+		s.cancelCtx(s.err)
+		if err != nil {
+			switch err := err.(type) {
+			case *quic.StreamError:
+				switch err.ErrorCode {
+				case perf.DeadlineExceededStreamErrorCode:
+				default:
+					s.client.close(err)
+				}
+			default:
+				s.client.close(err)
+			}
+		}
+	})
 }

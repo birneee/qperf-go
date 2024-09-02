@@ -29,6 +29,10 @@ func NewCertPoolFromFiles(files ...string) *x509.CertPool {
 }
 
 func GenerateCert() tls.Certificate {
+	return GenerateCertFor([]string{"localhost"}, []net.IP{net.ParseIP("127.0.0.1"), net.ParseIP("127.0.0.2")})
+}
+
+func GenerateCertFor(dnsNames []string, ipAddresses []net.IP) tls.Certificate {
 	key, err := rsa.GenerateKey(rand.Reader, 1024)
 	if err != nil {
 		panic(err)
@@ -37,8 +41,8 @@ func GenerateCert() tls.Certificate {
 		SerialNumber: big.NewInt(1),
 		NotBefore:    time.Now(),
 		NotAfter:     time.Now().AddDate(0, 0, 10),
-		DNSNames:     []string{"localhost"},
-		IPAddresses:  []net.IP{net.ParseIP("127.0.0.1")},
+		DNSNames:     dnsNames,
+		IPAddresses:  ipAddresses,
 	}
 	certDER, err := x509.CreateCertificate(rand.Reader, &template, &template, &key.PublicKey, key)
 	if err != nil {

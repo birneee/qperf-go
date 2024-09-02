@@ -6,35 +6,35 @@ Uses https://github.com/quic-go/quic-go
 ## Features
 
 - send and receive streams
-- send and receive datagrams ([RFC9221](https://datatracker.ietf.org/doc/html/rfc9221))
+- send and receive datagrams ([RFC9221](https://datatracker.ietf.org/doc/html/rfc9221)) (broken right now)
 - qlog output ([draft-ietf-quic-qlog](https://datatracker.ietf.org/doc/draft-ietf-quic-qlog-main-schema/))
 - 0-RTT handshakes
 - CPU profiling
 
 ## Example
 ```bash
-$ qperf-go client -a localhost
-{"qlog_format":"NDJSON","qlog_version":"draft-02","title":"qperf","code_version":"(devel)","trace":{"vantage_point":{"type":"client"},"common_fields":{"reference_time":1684159160105.857,"time_format":"relative"}}}
-{"time":1.005211,"name":"transport:connection_started","data":{"ip_version":"ipv6","src_ip":"::","src_port":38105,"dst_ip":"127.0.0.1","dst_port":18080,"src_cid":"(empty)","dst_cid":"7639ce1266656871c95b55d231"},"group_id":"7639ce1266656871c95b55d231","ODCID":"7639ce1266656871c95b55d231"}
-{"time":2.493612,"name":"qperf:handshake_completed","data":{}}
-{"time":2.777524,"name":"qperf:handshake_confirmed","data":{}}
-{"time":2.883244,"name":"qperf:first_app_data_sent","data":{}}
-{"time":3.167757,"name":"qperf:first_app_data_received","data":{}}
-{"time":1000.134168,"name":"qperf:report","data":{"stream_mbps_received":6565.9297,"stream_bytes_received":820844056,"period":1000.1253}}
-{"time":2000.1668,"name":"qperf:report","data":{"stream_mbps_received":6563.093,"stream_bytes_received":820413472,"period":1000.03265}}
-{"time":3000.220085,"name":"qperf:report","data":{"stream_mbps_received":6536.362,"stream_bytes_received":817088748,"period":1000.05334}}
-{"time":4000.241594,"name":"qperf:report","data":{"stream_mbps_received":6433.935,"stream_bytes_received":804259202,"period":1000.02155}}
-{"time":5000.294673,"name":"qperf:report","data":{"stream_mbps_received":6540.979,"stream_bytes_received":817665882,"period":1000.0531}}
-{"time":6000.363164,"name":"qperf:report","data":{"stream_mbps_received":6504.0977,"stream_bytes_received":813067816,"period":1000.06836}}
-{"time":7000.437307,"name":"qperf:report","data":{"stream_mbps_received":6503.4683,"stream_bytes_received":812993820,"period":1000.0742}}
-{"time":8000.463675,"name":"qperf:report","data":{"stream_mbps_received":6452.084,"stream_bytes_received":806531812,"period":1000.0265}}
-{"time":9000.469631,"name":"qperf:report","data":{"stream_mbps_received":6519.3145,"stream_bytes_received":814919010,"period":1000.00586}}
-{"time":10000.069076,"name":"transport:connection_closed","data":{"owner":"local","application_code":0,"reason":"no error"},"group_id":"7639ce1266656871c95b55d231","ODCID":"7639ce1266656871c95b55d231"}
-{"time":10000.11039,"name":"qperf:total","data":{"stream_mbps_received":6509.1797,"stream_bytes_received":8136557954,"period":10000.102}}
+$ qperf client -a localhost -tsv -t 10s
+{"qlog_format":"NDJSON","qlog_version":"draft-02","title":"qperf","code_version":"(devel)","trace":{"vantage_point":{"type":"client"},"common_fields":{"reference_time":1725288150744.6677,"time_format":"relative"}}}
+{"time":1.362658,"name":"transport:connection_started","data":{"dst_cid":"b5803e506576ef35b7aef890"}}
+{"time":2.567514,"name":"qperf:handshake_completed","data":{}}
+{"time":2.708749,"name":"qperf:first_app_data_sent","data":{}}
+{"time":3.03157,"name":"qperf:handshake_confirmed","data":{}}
+{"time":3.122169,"name":"qperf:first_app_data_received","data":{}}
+{"time":1000.35054,"name":"qperf:report","data":{"stream_mbps_received":7865.838,"stream_bytes_received":983565700,"period":1000.3416}}
+{"time":2000.395328,"name":"qperf:report","data":{"stream_mbps_received":7966.526,"stream_bytes_received":995860348,"period":1000.04486}}
+{"time":3000.423947,"name":"qperf:report","data":{"stream_mbps_received":7920.57,"stream_bytes_received":990099584,"period":1000.02856}}
+{"time":4000.479466,"name":"qperf:report","data":{"stream_mbps_received":7893.4785,"stream_bytes_received":986739584,"period":1000.0556}}
+{"time":5000.489054,"name":"qperf:report","data":{"stream_mbps_received":7984.5034,"stream_bytes_received":998072448,"period":1000.0096}}
+{"time":6000.551982,"name":"qperf:report","data":{"stream_mbps_received":7968.698,"stream_bytes_received":996150016,"period":1000.0629}}
+{"time":7000.584477,"name":"qperf:report","data":{"stream_mbps_received":7925.5615,"stream_bytes_received":990727424,"period":1000.0325}}
+{"time":8000.604035,"name":"qperf:report","data":{"stream_mbps_received":7883.597,"stream_bytes_received":985469056,"period":1000.0196}}
+{"time":9000.652448,"name":"qperf:report","data":{"stream_mbps_received":7903.3945,"stream_bytes_received":987972096,"period":1000.04834}}
+{"time":10000.088981,"name":"transport:connection_closed","data":{"owner":"local","application_code":0,"reason":"no error"}}
+{"time":10000.110586,"name":"qperf:total","data":{"stream_mbps_received":7920.8677,"stream_bytes_received":9901185920,"period":10000.102}}
 ```
 
 ## Requirements
-- Go 1.20
+- Go 1.23
 
 ## Build
 ```bash

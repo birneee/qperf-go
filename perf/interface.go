@@ -8,10 +8,12 @@ const ALPN = "perf"
 const DefaultServerPort = 18080
 
 const MaxResponseLength = ^uint64(0)
-const MaxDatagramResponseLength = 1197
 const MaxRequestLength = ^uint64(0)
-const MaxDatagramRequestLength = 1197
-
-const MaxDatagramResponseNum = ^uint32(0)
 
 const DeadlineExceededStreamErrorCode quic.StreamErrorCode = 1
+
+type MessageType uint8
+
+const (
+	MessageTypeInvalid MessageType = iota
+)

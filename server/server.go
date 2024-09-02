@@ -2,6 +2,7 @@ package server
 
 import (
 	"context"
+	"crypto/rand"
 	"fmt"
 	"github.com/quic-go/quic-go"
 	"github.com/quic-go/quic-go/logging"
@@ -11,11 +12,11 @@ import (
 	"qperf-go/common"
 	qlog2 "qperf-go/common/qlog"
 	"qperf-go/common/qlog_app"
-	"qperf-go/common/qlog_quic"
 	"qperf-go/perf"
 	"qperf-go/perf/perf_server"
 	"sync"
 	"syscall"
+	"time"
 )
 
 type Server interface {
@@ -28,12 +29,14 @@ type server struct {
 	listener    *quic.EarlyListener
 	config      *Config
 	qlog        qlog2.Writer
-	qlogTracer  func(ctx context.Context, perspective logging.Perspective, connectionID logging.ConnectionID) logging.ConnectionTracer
 	closeOnce   sync.Once
 	ctx         context.Context
 	cancelCtx   context.CancelFunc
-	mutex       sync.Mutex // for fields below
-	connections map[uint64]perf_server.Connection
+	mutex       sync.Mutex // for fields: connections
+	connections map[quic.ConnectionTracingID]perf_server.Connection
+	transport   quic.Transport
+	// closed when client is stopping and doing some final output, goroutine waiting and cleanup
+	stopping chan struct{}
 }
 
 func (s *server) Addr() net.Addr {
@@ -46,40 +49,64 @@ func (s *server) Context() context.Context {
 
 // Listen starts server.
 // if proxyAddr is nil, no proxy is used.
-func Listen(addr string, config *Config) Server {
+func Listen(addr string, config *Config) (Server, error) {
 	addr = common.AppendPortIfNotSpecified(addr, perf.DefaultServerPort)
+	udpAddr, err := net.ResolveUDPAddr("udp", addr)
+	if err != nil {
+		return nil, err
+	}
+	udpConn, err := net.ListenUDP("udp", udpAddr)
+	if err != nil {
+		return nil, err
+	}
+
+	config = config.Populate()
 	s := &server{
 		config:      config,
-		connections: map[uint64]perf_server.Connection{},
+		connections: map[quic.ConnectionTracingID]perf_server.Connection{},
+		stopping:    make(chan struct{}),
+		transport: quic.Transport{
+			Conn:                  udpConn,
+			ConnectionIDGenerator: config.ConnectionIDGenerator,
+			StatelessResetKey:     config.StatelessResetKey,
+			TokenGeneratorKey:     config.AddressTokenKey,
+		},
 	}
 	s.ctx, s.cancelCtx = context.WithCancel(context.Background())
 
-	var tracers []func(ctx context.Context, perspective logging.Perspective, connectionID logging.ConnectionID) logging.ConnectionTracer
-	if s.config.QuicConfig.Tracer != nil {
-		tracers = append(tracers, s.config.QuicConfig.Tracer)
+	if s.qlog == nil {
+		var id [4]byte
+		rand.Read(id[:])
+		s.qlog = qlog2.NewQlogDirWriter(id[:], s.config.PerfConfig.QlogLabel, s.config.QlogConfig)
 	}
 
-	if s.config.QlogPathTemplate == "" {
+	if s.qlog == nil {
 		s.qlog = qlog2.NewStdoutQlogWriter(s.config.QlogConfig)
-		s.qlogTracer = qlog_quic.NewTracer(s.qlog)
-	} else {
-		s.qlogTracer = qlog_quic.NewFileQlogTracer(s.config.QlogPathTemplate, s.config.QlogConfig)
-		s.qlog = s.qlogTracer(s.ctx, logging.PerspectiveServer, logging.ConnectionID{}).(qlog_quic.QlogWriterConnectionTracer).QlogWriter()
 	}
-	tracers = append(tracers, s.qlogTracer)
+	s.config.PerfConfig.Qlog = s.qlog
 
-	s.config.QuicConfig.Tracer = common.NewMultiplexedTracer(tracers...)
+	s.config.PerfConfig.QuicConfig.Tracer = appendQperfTracer(s.config.PerfConfig.QuicConfig.Tracer, s.qlog)
 
 	//TODO add option to disable mtu discovery
 	//TODO add option to enable address prevalidation
 
-	var err error
-	s.listener, err = quic.ListenAddrEarly(addr, s.config.TlsConfig, s.config.QuicConfig)
+	for _, event := range s.config.Events {
+		go func() {
+			select {
+			case <-s.stopping:
+				return
+			case <-time.After(event.Time()):
+				s.runEvent(event)
+			}
+		}()
+	}
+
+	s.listener, err = s.transport.ListenEarly(s.config.PerfConfig.TlsConfig, s.config.PerfConfig.QuicConfig)
 	if err != nil {
 		panic(err)
 	}
 
-	s.qlog.RecordEvent(qlog_app.AppInfoEvent{Message: fmt.Sprintf("starting server with pid %d, port %d", os.Getpid(), s.listener.Addr().(*net.UDPAddr).Port)})
+	s.qlog.RecordEvent(qlog_app.AppInfoEvent{Message: fmt.Sprintf("starting server with pid %d, addr %s", os.Getpid(), s.listener.Addr().String())})
 
 	c := make(chan os.Signal, 1)
 	signal.Notify(c, os.Interrupt, syscall.SIGTERM, os.Kill)
@@ -94,7 +121,39 @@ func Listen(addr string, config *Config) Server {
 			panic(err)
 		}
 	}()
-	return s
+	return s, nil
+}
+
+func appendQperfTracer(tracer func(context.Context, logging.Perspective, quic.ConnectionID) *logging.ConnectionTracer, qlog qlog2.Writer) func(context.Context, logging.Perspective, quic.ConnectionID) *logging.ConnectionTracer {
+	return common.NewMultiplexedTracer(
+		tracer,
+		func(_ context.Context, _ logging.Perspective, _ logging.ConnectionID) *logging.ConnectionTracer {
+			return &logging.ConnectionTracer{
+				StartedConnection: func(_, _ net.Addr, _, destConnID logging.ConnectionID) {
+					qlog.RecordEvent(common.EventConnectionStarted{DestConnectionID: destConnID})
+				},
+				ClosedConnection: func(err error) {
+					qlog.RecordEvent(common.EventConnectionClosed{Err: err})
+				},
+				Debug: func(name, msg string) {
+					qlog.RecordEvent(common.EventGeneric{CategoryF: "transport", NameF: name, MsgF: msg})
+				},
+			}
+		},
+	)
+}
+
+// alpn is sometimes not available immediately
+// TODO fix bug in qtls
+func (s *server) getAlpn(conn quic.Connection) string {
+	for {
+		alpn := conn.ConnectionState().TLS.NegotiatedProtocol
+		if alpn != "" {
+			return alpn
+		}
+		s.qlog.RecordEvent(qlog_app.AppInfoEvent{Message: "wait until alpn is available; TODO open quic-go github issue"})
+		time.Sleep(10 * time.Microsecond)
+	}
 }
 
 func (s *server) Run() error {
@@ -104,7 +163,7 @@ func (s *server) Run() error {
 			s.Close(err)
 			return nil
 		}
-		switch alpn := quicConnection.ConnectionState().TLS.NegotiatedProtocol; alpn {
+		switch alpn := s.getAlpn(quicConnection); alpn {
 		case perf.ALPN:
 			s.acceptPerf(quicConnection)
 		default:
@@ -117,22 +176,27 @@ func (s *server) Close(err error) {
 	s.closeOnce.Do(func() {
 		if err != nil {
 			s.qlog.RecordEvent(qlog_app.AppErrorEvent{Message: err.Error()})
+		} else {
+			s.qlog.RecordEvent(qlog_app.AppInfoEvent{Message: "stop"})
 		}
 		s.mutex.Lock()
 		for _, conn := range s.connections {
 			conn.Close()
 		}
 		s.mutex.Unlock()
+		close(s.stopping)
 		if s.listener != nil {
 			s.listener.Close()
 		}
+		s.transport.Close()
 		s.qlog.Close()
 		s.cancelCtx()
 	})
+	<-s.ctx.Done()
 }
 
 func (s *server) acceptPerf(quicConn quic.EarlyConnection) {
-	perfConn := perf_server.NewConnection(quicConn)
+	perfConn := perf_server.NewConnection(quicConn, s.config.PerfConfig)
 	s.addConnectionToList(perfConn)
 }
 
@@ -146,4 +210,11 @@ func (s *server) addConnectionToList(perfConn perf_server.Connection) {
 		delete(s.connections, perfConn.TracingID())
 		s.mutex.Unlock()
 	}()
+}
+
+func (s *server) runEvent(event common.Event) {
+	switch event.(type) {
+	default:
+		panic("unexpected event type")
+	}
 }

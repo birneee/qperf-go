@@ -152,10 +152,6 @@ func (s *State) FirstByteSentTime() time.Time {
 	return s.firstByteSentTime
 }
 
-func (s *State) GetStartTime() time.Time {
-	return s.startTime
-}
-
 func (s *State) AddRttStats(stats *logging.RTTStats) {
 	s.mutex.Lock()
 	defer s.mutex.Unlock()

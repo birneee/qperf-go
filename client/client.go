@@ -2,38 +2,56 @@ package client
 
 import (
 	"context"
+	"crypto/rand"
 	"crypto/tls"
 	"fmt"
 	"github.com/quic-go/quic-go"
 	"github.com/quic-go/quic-go/logging"
+	"github.com/quic-go/quic-go/qlog"
+	"net"
 	"os"
 	"os/signal"
 	"qperf-go/common"
 	qlog2 "qperf-go/common/qlog"
 	"qperf-go/common/qlog_app"
-	"qperf-go/common/qlog_quic"
 	"qperf-go/perf"
 	"qperf-go/perf/perf_client"
 	"sync"
+	"sync/atomic"
 	"syscall"
 	"time"
 )
 
 type Client interface {
+	// Context is done when all tasks are finished or Close is called manually
 	Context() context.Context
+	TotalReport() common.Report
+	Close()
 }
 
 type client struct {
-	perfClient perf_client.Client
-	state      *common.State
-	config     *Config
-	qlog       qlog2.Writer
-	closeOnce  sync.Once
+	totalReceivedStreamBytesByPreviousPerfConns uint64
+	totalSentStreamBytesByPreviousPerfConns     uint64
+	perfClient                                  perf_client.Client
+	state                                       *common.State
+	config                                      *Config
+	qlog                                        qlog2.Writer
+	closeOnce                                   sync.Once
 	// closed when client is stopping and doing some final output and cleanup
 	stopping       chan struct{}
 	streamLoopDone chan struct{}
 	qperfCtx       context.Context
 	cancelQperfCtx context.CancelFunc
+	// number of stream requests and responses that are processed, either successfully or by a deadline
+	finishedStreamRequests atomic.Uint64
+	// number of stream requests that have been started
+	startedStreamRequests atomic.Uint64
+	// closed when first perf client is ready to use
+	perfClientReady chan struct{}
+	// closed when the reconnect loop has stopped
+	reconnectLoopDone chan struct{}
+	// closed when the report loop has stopped
+	reportLoopDone chan struct{}
 }
 
 func (c *client) Context() context.Context {
@@ -43,25 +61,50 @@ func (c *client) Context() context.Context {
 // Dial starts a new client
 func Dial(conf *Config) Client {
 	c := &client{
-		state:          common.NewState(),
-		config:         conf,
-		stopping:       make(chan struct{}),
-		streamLoopDone: make(chan struct{}),
+		state:             common.NewState(),
+		config:            conf.Populate(),
+		stopping:          make(chan struct{}),
+		streamLoopDone:    make(chan struct{}),
+		perfClientReady:   make(chan struct{}),
+		reconnectLoopDone: make(chan struct{}),
+		reportLoopDone:    make(chan struct{}),
 	}
 	c.qperfCtx, c.cancelQperfCtx = context.WithCancel(context.Background())
 
-	var tracers []func(ctx context.Context, perspective logging.Perspective, connectionID logging.ConnectionID) logging.ConnectionTracer
-
-	tracers = append(tracers, common.NewStateTracer(c.state))
-
-	if c.config.QlogPathTemplate == "" {
-		c.qlog = qlog2.NewStdoutQlogWriter(c.config.QlogConfig)
-		tracers = append(tracers, qlog_quic.NewTracer(c.qlog))
-	} else {
-		tracer := qlog_quic.NewFileQlogTracer(c.config.QlogPathTemplate, c.config.QlogConfig)
-		c.qlog = tracer(c.qperfCtx, logging.PerspectiveClient, logging.ConnectionID{}).(qlog_quic.QlogWriterConnectionTracer).QlogWriter()
-		tracers = append(tracers, tracer)
+	if c.qlog == nil {
+		var id [4]byte
+		rand.Read(id[:])
+		c.qlog = qlog2.NewQlogDirWriter(id[:], "qperf_client", c.config.QlogConfig)
 	}
+
+	if c.qlog == nil {
+		c.qlog = qlog2.NewStdoutQlogWriter(c.config.QlogConfig)
+	}
+
+	var tracers []func(ctx context.Context, perspective logging.Perspective, connectionID logging.ConnectionID) *logging.ConnectionTracer
+
+	if c.config.QuicConfig.Tracer != nil {
+		tracers = append(tracers, c.config.QuicConfig.Tracer)
+	}
+
+	tracers = append(tracers, qlog.DefaultConnectionTracer)
+
+	tracers = append(tracers, common.NewStateTracer(c.state).TracerForConnection)
+
+	tracers = append(tracers, func(_ context.Context, _ logging.Perspective, _ logging.ConnectionID) *logging.ConnectionTracer {
+		return &logging.ConnectionTracer{
+			StartedConnection: func(_, _ net.Addr, _, destConnID logging.ConnectionID) {
+				c.qlog.RecordEvent(common.EventConnectionStarted{DestConnectionID: destConnID})
+			},
+			ClosedConnection: func(err error) {
+				c.qlog.RecordEvent(common.EventConnectionClosed{Err: err})
+
+			},
+			Debug: func(name, msg string) {
+				c.qlog.RecordEvent(common.EventGeneric{CategoryF: "transport", NameF: name, MsgF: msg})
+			},
+		}
+	})
 
 	if c.config.TlsConfig.ClientSessionCache != nil {
 		panic("unexpected value")
@@ -77,13 +120,19 @@ func Dial(conf *Config) Client {
 		c.config.QuicConfig.TokenStore = quic.NewLRUTokenStore(1, 1)
 	}
 
-	if c.config.QuicConfig.Tracer != nil {
-		panic("unexptected value")
-	}
 	c.config.QuicConfig.Tracer = common.NewMultiplexedTracer(tracers...)
 
 	if c.config.Use0RTT {
-		err := common.PingToGatherSessionTicketAndToken(c.qperfCtx, c.config.RemoteAddress, c.config.TlsConfig, c.config.QuicConfig)
+		err := common.PingToGatherSessionTicketAndToken(
+			c.qperfCtx,
+			c.config.RemoteAddress,
+			c.config.TlsConfig.ClientSessionCache,
+			c.config.QuicConfig.TokenStore,
+			c.config.TlsConfig.NextProtos[0],
+			c.config.TlsConfig.RootCAs,
+			c.config.TlsConfig.ServerName,
+			qlog.DefaultConnectionTracer,
+		)
 		if err != nil {
 			panic(fmt.Errorf("failed to prepare 0-RTT: %w", err))
 		}
@@ -93,12 +142,11 @@ func Dial(conf *Config) Client {
 	c.state.SetStartTime()
 
 	go func() {
+	reconnectLoop:
 		for {
 			select {
 			case <-c.stopping:
-				break
-			case <-c.qperfCtx.Done():
-				break
+				break reconnectLoop
 			default:
 				err := c.runConn()
 				if err != nil {
@@ -106,38 +154,49 @@ func Dial(conf *Config) Client {
 				}
 			}
 		}
+		close(c.reconnectLoopDone)
+	}()
+
+	go func() {
+		c.runRequestLoop()
+		close(c.streamLoopDone)
 	}()
 
 	go func() {
 		err := c.Run()
 		if err != nil {
-			panic(err)
+			c.close(err)
 		}
+		close(c.reportLoopDone)
 	}()
 
 	return c
 }
 
 func (c *client) runConn() error {
-	c.state.ResetForReconnect()
-	if c.config.Use0RTT {
-		var err error
-		c.perfClient, err = perf_client.DialEarlyAddr(c.config.RemoteAddress, &perf_client.Config{
+	if c.perfClient != nil {
+		c.state.ResetForReconnect()
+		c.qlog.RecordEvent(qlog_app.AppInfoEvent{Message: "reconnect"})
+		c.totalSentStreamBytesByPreviousPerfConns += c.perfClient.SentBytes()
+		c.totalReceivedStreamBytesByPreviousPerfConns += c.perfClient.ReceivedBytes()
+	}
+	var err error
+	c.perfClient, err = perf_client.DialAddr(
+		c.config.RemoteAddress,
+		&perf_client.Config{
 			QuicConfig: c.config.QuicConfig,
 			TlsConfig:  c.config.TlsConfig,
-		})
-		if err != nil {
-			return err
-		}
-	} else {
-		var err error
-		c.perfClient, err = perf_client.DialAddr(c.config.RemoteAddress, &perf_client.Config{
-			QuicConfig: c.config.QuicConfig,
-			TlsConfig:  c.config.TlsConfig,
-		})
-		if err != nil {
-			return err
-		}
+			Qlog:       c.qlog,
+		},
+		c.config.Use0RTT)
+	if err != nil {
+		return err
+	}
+
+	select {
+	case <-c.perfClientReady:
+	default:
+		close(c.perfClientReady)
 	}
 
 	go func() {
@@ -149,8 +208,6 @@ func (c *client) runConn() error {
 		c.state.AwaitHandshakeConfirmed()
 		c.qlog.RecordEventAtTime(c.state.HandshakeConfirmedTime(), common.HandshakeConfirmedEvent{})
 	}()
-
-	c.runStreamRequestLoop()
 
 	if c.config.ReceiveInfiniteStream {
 		_, _, err := c.perfClient.Request(0, perf.MaxResponseLength, 0)
@@ -167,22 +224,11 @@ func (c *client) runConn() error {
 	}
 
 	if c.config.ReceiveDatagram {
-		err := c.perfClient.DatagramRequest(0, perf.MaxDatagramResponseNum, perf.MaxDatagramResponseLength, 0)
-		if err != nil {
-			c.handlePerfClose(err)
-		}
-
+		panic("implement me")
 	}
 
 	if c.config.SendDatagram {
-		go func() {
-			for {
-				err := c.perfClient.DatagramRequest(perf.MaxDatagramRequestLength, 0, 0, 0)
-				if err != nil {
-					c.handlePerfClose(err)
-				}
-			}
-		}()
+		panic("implement me")
 	}
 	go func() {
 		c.state.AwaitFirstByteReceived()
@@ -193,52 +239,62 @@ func (c *client) runConn() error {
 		c.qlog.RecordEventAtTime(c.state.FirstByteSentTime(), common.FirstAppDataSentEvent{})
 	}()
 
-	<-c.perfClient.Context().Done()
-	err := c.perfClient.Close()
+	select {
+	case <-c.perfClient.Context().Done():
+	case <-c.stopping:
+	}
+	err = c.perfClient.Close()
 	c.handlePerfClose(err)
 	return nil
 }
 
-func (c *client) runStreamRequestLoop() {
+func (c *client) runRequestLoop() {
 	if c.config.RequestLength == 0 && c.config.ResponseLength == 0 {
-		close(c.streamLoopDone)
 		return
 	}
-	go func() {
-	requestLoop:
-		for {
-			go func() {
-				req, resp, err := c.perfClient.Request(c.config.RequestLength, c.config.ResponseLength, c.config.ResponseDelay)
-				if err != nil {
-					c.handlePerfClose(err)
-					return
-				}
-				select {
-				case <-req.Context().Done():
-				case <-time.After(c.config.Deadline):
-					req.Cancel()
-				}
-				if resp != nil {
-					select {
-					case <-resp.Context().Done():
-						if resp.Success() {
-							c.state.AddReceivedResponses(1)
-						}
-					case <-time.After(c.config.Deadline):
-						resp.Cancel()
-						c.state.AddDeadlineExceededResponses(1)
-					}
-				}
-				if c.config.RequestInterval == 0 {
-					close(c.streamLoopDone)
-				}
-			}()
-			if c.config.RequestInterval == 0 {
-				break requestLoop
+	<-c.perfClientReady
+	var respWG sync.WaitGroup
+requestLoop:
+	for {
+		respWG.Add(1)
+		go func() {
+			defer c.finishedStreamRequests.Add(1)
+			defer respWG.Done()
+			req, resp, err := c.perfClient.Request(c.config.RequestLength, c.config.ResponseLength, c.config.ResponseDelay)
+			if err != nil {
+				c.handlePerfClose(err)
+				return // cancel current request
 			}
-			time.Sleep(c.config.RequestInterval)
+			select {
+			case <-req.Context().Done():
+			case <-time.After(c.config.RequestDeadline):
+				req.Cancel()
+				resp.Cancel()
+				// exceeded deadlines will be counted in the next step
+			}
+			select {
+			case <-resp.Context().Done():
+				if resp.Success() {
+					c.state.AddReceivedResponses(1)
+				}
+			case <-time.After(c.config.ResponseDeadline):
+				req.Cancel()
+				resp.Cancel()
+				c.state.AddDeadlineExceededResponses(1)
+			}
+		}()
+		c.startedStreamRequests.Add(1)
+		if c.startedStreamRequests.Load() >= c.config.NumRequests {
+			break requestLoop
 		}
-	}()
+		select {
+		case <-c.stopping:
+			break requestLoop
+		default:
+		}
+		time.Sleep(c.config.RequestInterval)
+	}
+	respWG.Wait()
 }
 
 func (c *client) Run() error {
@@ -251,12 +307,12 @@ func (c *client) Run() error {
 		c.Close()
 	}()
 
-	go func() {
-		<-c.streamLoopDone
-		if !c.config.ReceiveInfiniteStream && !c.config.SendInfiniteStream && !c.config.ReceiveDatagram && !c.config.SendDatagram {
+	if !c.config.SendInfiniteStream && !c.config.ReceiveInfiniteStream && !c.config.ReceiveDatagram && !c.config.SendDatagram {
+		go func() {
+			<-c.streamLoopDone
 			c.Close()
-		}
-	}()
+		}()
+	}
 
 	if c.config.TimeToFirstByteOnly {
 		c.state.AwaitFirstByteReceived()
@@ -267,25 +323,25 @@ func (c *client) Run() error {
 	loop:
 		for {
 			select {
-			case <-endTimeChan:
-				break loop
 			case <-time.After(c.config.ReportInterval):
 				c.report(c.state, false)
-			case <-c.qperfCtx.Done():
+			case <-endTimeChan:
+				break loop
+			case <-c.stopping:
 				break loop
 			}
 		}
 	}
 
-	c.Close()
+	c.close(nil)
 	return nil
 }
 
 func (c *client) report(state *common.State, total bool) {
 	var report common.Report
 	if c.perfClient != nil {
-		state.SetTotalReceiveStreamBytes(c.perfClient.ReceivedBytes())
-		state.SetTotalSentStreamBytes(c.perfClient.SentBytes())
+		state.SetTotalReceiveStreamBytes(c.totalReceivedStreamBytesByPreviousPerfConns + c.perfClient.ReceivedBytes())
+		state.SetTotalSentStreamBytes(c.totalSentStreamBytesByPreviousPerfConns + c.perfClient.SentBytes())
 	}
 	if total {
 		report = state.TotalReport()
@@ -324,7 +380,7 @@ func (c *client) report(state *common.State, total bool) {
 		event.DatagramMegaBitsPerSecondSent = &mbps
 		event.DatagramBytesSent = &report.SentDatagramBytes
 	}
-	if c.config.RequestInterval != 0 {
+	if c.config.NumRequests > 1 {
 		event.ResponsesReceived = &report.ReceivedResponses
 	}
 	if report.DeadlineExceededResponses != 0 {
@@ -345,11 +401,12 @@ func (c *client) handlePerfClose(err error) {
 		if _, ok := err.(*quic.StatelessResetError); ok {
 			return // reconnect
 		}
+
 	}
-	c.CloseWithError(err)
+	c.close(err)
 }
 
-func (c *client) CloseWithError(err error) {
+func (c *client) close(err error) {
 	c.closeOnce.Do(func() {
 		close(c.stopping)
 		if err != nil {
@@ -357,20 +414,40 @@ func (c *client) CloseWithError(err error) {
 				// close regularly
 			} else if _, ok := err.(*quic.ApplicationError); ok {
 				// close regularly
+			} else if _, ok := err.(*quic.StatelessResetError); ok {
+				c.perfClient.Close()
 			} else {
 				panic(fmt.Errorf("close with error: %s", err).Error())
 			}
-			c.perfClient.Close()
+			if c.perfClient != nil {
+				c.perfClient.Close()
+			}
 		} else {
-			c.perfClient.Close()
+			if c.perfClient != nil {
+				c.perfClient.Close()
+			}
 		}
-		c.report(c.state, true)
-		c.qlog.Close()
-		// flush qlog
-		c.cancelQperfCtx()
+		go func() {
+			<-c.reconnectLoopDone
+			<-c.streamLoopDone
+			<-c.reportLoopDone
+			c.report(c.state, true)
+			c.qlog.Close()
+			// flush qlog
+			c.cancelQperfCtx()
+		}()
 	})
+}
+
+func (c *client) CloseWithError(err error) {
+	c.close(err)
+	<-c.qperfCtx.Done()
 }
 
 func (c *client) Close() {
 	c.CloseWithError(nil)
+}
+
+func (c *client) TotalReport() common.Report {
+	return c.state.TotalReport()
 }

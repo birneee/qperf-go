@@ -10,15 +10,16 @@ type SingleSessionCache struct {
 	emptyContextCancel context.CancelFunc
 	sessionKey         *string
 	session            *tls.ClientSessionState
+	validateKey        bool
 }
 
 var _ tls.ClientSessionCache = (*SingleSessionCache)(nil)
 
-func (s *SingleSessionCache) Get(sessionKey string) (session *tls.ClientSessionState, ok bool) {
+func (s *SingleSessionCache) Get(sessionKey string) (*tls.ClientSessionState, bool) {
 	select {
 	case <-s.emptyContext.Done():
-		if sessionKey == *s.sessionKey {
-			return session, true
+		if sessionKey == *s.sessionKey || !s.validateKey {
+			return s.session, true
 		}
 	default: // do not wait
 	}
@@ -49,5 +50,6 @@ func NewSingleSessionCache() *SingleSessionCache {
 		emptyContextCancel,
 		nil,
 		nil,
+		false,
 	}
 }

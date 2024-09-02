@@ -15,6 +15,7 @@ type ResponseSendStream interface {
 	Context() context.Context
 	Length() uint64
 	Delay() time.Duration
+	Cancel()
 }
 
 type responseSendStream struct {
@@ -76,4 +77,8 @@ func (s *responseSendStream) Length() uint64 {
 
 func (s *responseSendStream) Delay() time.Duration {
 	return s.delay
+}
+
+func (s *responseSendStream) Cancel() {
+	s.quicStream.CancelWrite(perf.DeadlineExceededStreamErrorCode)
 }

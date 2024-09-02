@@ -2,7 +2,6 @@ package perf_client
 
 import (
 	"context"
-	"errors"
 	"github.com/quic-go/quic-go"
 	"io"
 	"qperf-go/common/utils"
@@ -18,19 +17,22 @@ type ResponseReceiveStream interface {
 }
 
 type responseReceiveStream struct {
-	receivedBytes atomic.Uint64
-	client        *client
-	quicStream    quic.ReceiveStream
-	ctx           context.Context
-	cancelCtx     context.CancelCauseFunc
+	receivedBytes         atomic.Uint64
+	client                *client
+	quicStream            quic.ReceiveStream
+	ctx                   context.Context
+	cancelCtx             context.CancelFunc
+	success               bool
+	expectedReceivedBytes uint64
 }
 
-func newResponseReceiveStream(quicStream quic.ReceiveStream, client *client) (ResponseReceiveStream, error) {
+func newResponseReceiveStream(quicStream quic.ReceiveStream, client *client, expectedReceivedBytes uint64) (ResponseReceiveStream, error) {
 	s := &responseReceiveStream{
-		client:     client,
-		quicStream: quicStream,
+		client:                client,
+		quicStream:            quicStream,
+		expectedReceivedBytes: expectedReceivedBytes,
 	}
-	s.ctx, s.cancelCtx = context.WithCancelCause(client.Context())
+	s.ctx, s.cancelCtx = context.WithCancel(client.Context())
 	go func() {
 		err := s.run()
 		if err != nil {
@@ -63,7 +65,11 @@ func (s *responseReceiveStream) run() error {
 	if err != nil {
 		return err
 	}
-	s.cancelCtx(nil)
+	if s.receivedBytes.Load() != s.expectedReceivedBytes {
+		panic("unexpected number of bytes")
+	}
+	s.success = true
+	s.cancelCtx()
 	return nil
 }
 
@@ -76,5 +82,5 @@ func (s *responseReceiveStream) Cancel() {
 }
 
 func (s *responseReceiveStream) Success() bool {
-	return errors.Is(s.ctx.Err(), context.Canceled)
+	return s.success
 }
